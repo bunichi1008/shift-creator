@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.env
+.env.*
+!.env.example
+.shift-creator/
+dist/
+coverage.out
+.DS_Store

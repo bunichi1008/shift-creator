@@ -1,0 +1,307 @@
+{
+  "$defs": {
+    "Assignment": {
+      "additionalProperties": false,
+      "properties": {
+        "employee_id": {
+          "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+          "title": "Employee Id",
+          "type": "string"
+        },
+        "date": {
+          "format": "date",
+          "title": "Date",
+          "type": "string"
+        },
+        "shift_id": {
+          "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+          "title": "Shift Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "employee_id",
+        "date",
+        "shift_id"
+      ],
+      "title": "Assignment",
+      "type": "object"
+    },
+    "EmployeeMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "employee_id": {
+          "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+          "title": "Employee Id",
+          "type": "string"
+        },
+        "minutes": {
+          "title": "Minutes",
+          "type": "integer"
+        },
+        "nights": {
+          "title": "Nights",
+          "type": "integer"
+        },
+        "minutes_deviation": {
+          "title": "Minutes Deviation",
+          "type": "integer"
+        },
+        "nights_deviation": {
+          "title": "Nights Deviation",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "employee_id",
+        "minutes",
+        "nights",
+        "minutes_deviation",
+        "nights_deviation"
+      ],
+      "title": "EmployeeMetrics",
+      "type": "object"
+    },
+    "Issue": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "employee_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Employee Id"
+        },
+        "date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Date"
+        },
+        "shift_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shift Id"
+        },
+        "rule_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rule Id"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "Issue",
+      "type": "object"
+    },
+    "Metrics": {
+      "additionalProperties": false,
+      "properties": {
+        "preference_total": {
+          "title": "Preference Total",
+          "type": "integer"
+        },
+        "preference_met": {
+          "title": "Preference Met",
+          "type": "integer"
+        },
+        "weighted_preference_violations": {
+          "title": "Weighted Preference Violations",
+          "type": "integer"
+        },
+        "covered_slots": {
+          "title": "Covered Slots",
+          "type": "integer"
+        },
+        "total_slots": {
+          "title": "Total Slots",
+          "type": "integer"
+        },
+        "changed_cells": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Changed Cells"
+        },
+        "employees": {
+          "items": {
+            "$ref": "#/$defs/EmployeeMetrics"
+          },
+          "title": "Employees",
+          "type": "array"
+        }
+      },
+      "required": [
+        "preference_total",
+        "preference_met",
+        "weighted_preference_violations",
+        "covered_slots",
+        "total_slots",
+        "changed_cells",
+        "employees"
+      ],
+      "title": "Metrics",
+      "type": "object"
+    },
+    "Report": {
+      "additionalProperties": false,
+      "properties": {
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/Issue"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "metrics": {
+          "$ref": "#/$defs/Metrics"
+        }
+      },
+      "required": [
+        "issues",
+        "metrics"
+      ],
+      "title": "Report",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "enum": [
+        "optimal",
+        "feasible",
+        "infeasible",
+        "no_solution",
+        "solver_unavailable",
+        "demo_valid",
+        "demo_invalid",
+        "error"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "solver": {
+      "title": "Solver",
+      "type": "string"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "assignments": {
+      "items": {
+        "$ref": "#/$defs/Assignment"
+      },
+      "maxItems": 3100,
+      "title": "Assignments",
+      "type": "array"
+    },
+    "report": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Report"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "diagnostics": {
+      "items": {
+        "$ref": "#/$defs/Issue"
+      },
+      "maxItems": 3100,
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "objective": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Objective",
+      "type": "object"
+    },
+    "best_bound": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Best Bound"
+    },
+    "gap": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Gap"
+    },
+    "elapsed_ms": {
+      "default": 0,
+      "title": "Elapsed Ms",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "status",
+    "solver",
+    "message"
+  ],
+  "title": "SolveResult",
+  "type": "object"
+}

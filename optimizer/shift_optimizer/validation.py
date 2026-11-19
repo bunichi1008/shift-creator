@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+from datetime import date, timedelta
+
+from .models import (
+    Assignment, Cell, EmployeeMetrics, Issue, Metrics, Problem, Report, Shift, clock_minutes,
+)
+
+DAY = timedelta(days=1)
+
+
+def interval(day: date, shift: Shift) -> tuple[int, int]:
+    start = clock_minutes(shift.start)
+    end = clock_minutes(shift.end)
+    origin = day.toordinal() * 1440
+    return origin + start, origin + end + (1440 if end < start else 0)
+
+
+def incompatible(problem: Problem, shifts: dict[str, Shift], first: Assignment, second: Assignment) -> str:
+    if first.date == second.date:
+        return "勤務開始日が重複しています"
+    if first.date > second.date:
+        first, second = second, first
+    _, end = interval(first.date, shifts[first.shift_id])
+    start, _ = interval(second.date, shifts[second.shift_id])
+    if start - end < problem.limits.min_rest_minutes:
+        return "勤務間休息が不足しています"
+    if (problem.limits.no_next_day_after_night and
+            first.shift_id == problem.limits.night_shift_id and second.date == first.date + DAY):
+        return "夜勤翌日に新しい勤務が始まっています"
+    return ""
+
+
+def validate(problem: Problem, assignments: list[Assignment]) -> Report:
+    employees = {e.id: e for e in problem.employees}
+    shifts = {s.id: s for s in problem.shifts}
+    issues: list[Issue] = []
+
+    def issue(code: str, message: str, **attributes) -> None:
+        issues.append(Issue(code=code, message=message, **attributes))
+
+    def cell_issue(code: str, message: str, row: Assignment, **attributes) -> None:
+        issue(code, message, employee_id=row.employee_id, date=row.date, shift_id=row.shift_id, **attributes)
+
+    assigned: dict[Cell, str] = {}
+    by_employee: dict[str, list[Assignment]] = defaultdict(list)
+    by_slot: dict[tuple[date, str], list[str]] = defaultdict(list)
+    for row in problem.history:
+        by_employee[row.employee_id].append(row)
+    for row in assignments:
+        if row.employee_id not in employees or row.shift_id not in shifts or not problem.in_period(row.date):
+            cell_issue("invalid_assignment", "職員・日付・勤務枠を確認してください", row)
+            continue
+        if row.cell in assigned:
+            cell_issue("duplicate_assignment", "1日に2件以上の勤務が入っています", row)
+            continue
+        assigned[row.cell] = row.shift_id
+        by_slot[row.date, row.shift_id].append(row.employee_id)
+        by_employee[row.employee_id].append(row)
+
+    covered = 0
+    for row in problem.coverage:
+        count = len(by_slot[row.date, row.shift_id])
+        if row.minimum <= count <= row.maximum:
+            covered += 1
+        else:
+            issue("coverage", f"{count}人の配置です。必要人数は{row.minimum}〜{row.maximum}人です",
+                  date=row.date, shift_id=row.shift_id)
+
+    preference_total = preference_met = weighted_violations = 0
+    for preference in problem.preferences:
+        item = assigned.get((preference.employee_id, preference.date))
+        if preference.kind == "unavailable":
+            if item and (not preference.shift_id or item == preference.shift_id):
+                issue("unavailable", "勤務不可の枠に配置されています", employee_id=preference.employee_id,
+                      date=preference.date, shift_id=item)
+            continue
+        preference_total += 1
+        met = item is None if preference.kind == "prefer_off" else item == preference.shift_id
+        preference_met += int(met)
+        if not met:
+            weighted_violations += preference.weight
+
+    for lock in problem.locks:
+        if assigned.get(lock.cell, "off") != lock.shift_id:
+            cell_issue("locked_assignment", "固定した勤務または休みと一致していません", lock)
+
+    employee_metrics = []
+    limits_by_employee = defaultdict(list)
+    for rule in problem.rules:
+        if rule.type in {"max_consecutive", "max_work_minutes"}:
+            targets = [rule.employee_id] if rule.employee_id else employees
+            for employee_id in targets:
+                limits_by_employee[employee_id].append(rule)
+            continue
+        attrs = dict(date=rule.date, employee_id=rule.employee_id, shift_id=rule.shift_id, rule_id=rule.id)
+        if rule.type in {"min_skill_coverage", "min_coverage"}:
+            listed = by_slot[rule.date, rule.shift_id]
+            count = len(listed)
+            if rule.skill_id:
+                count = sum(rule.skill_id in employees[key].skills for key in listed)
+            if count < rule.value:
+                label = f"資格 {rule.skill_id} の職員" if rule.skill_id else "職員"
+                issue(rule.type, f"{label}が{rule.value - count}人不足しています（{count}/{rule.value}）", **attrs)
+        else:
+            item = assigned.get((rule.employee_id, rule.date), "off")
+            if rule.type == "fixed" and item != rule.shift_id:
+                issue(rule.type, "固定した勤務または休みと一致していません", **attrs)
+            if rule.type == "unavailable" and item != "off" and rule.shift_id in (None, item):
+                issue(rule.type, "勤務不可の枠に配置されています", **attrs)
+
+    for employee in problem.employees:
+        ordered = sorted(by_employee[employee.id], key=lambda row: row.date)
+        minutes = nights = run = peak = 0
+        prior = None
+        peak_day = None
+        for row in ordered:
+            current_period = problem.in_period(row.date)
+            if current_period:
+                minutes += shifts[row.shift_id].paid_minutes
+                nights += row.shift_id == problem.limits.night_shift_id
+                if prior and (reason := incompatible(problem, shifts, prior, row)):
+                    cell_issue("rest", reason, row)
+            run = run + 1 if prior and row.date == prior.date + DAY else 1
+            if current_period and run > peak:
+                peak, peak_day = run, row.date
+            prior = row
+
+        if minutes > employee.max_minutes:
+            issue("max_work_minutes", f"勤務時間が上限を{minutes - employee.max_minutes}分超えています",
+                  employee_id=employee.id)
+        if peak > problem.limits.max_consecutive:
+            issue("max_consecutive", f"{peak}連勤です。上限は{problem.limits.max_consecutive}日です",
+                  employee_id=employee.id, date=peak_day)
+        for rule in limits_by_employee[employee.id]:
+            actual = peak if rule.type == "max_consecutive" else minutes
+            if actual > rule.value:
+                unit = "日" if rule.type == "max_consecutive" else "分"
+                issue(rule.type, f"上限の{rule.value}{unit}を超えています（{actual}{unit}）",
+                      employee_id=employee.id, rule_id=rule.id,
+                      date=peak_day if rule.type == "max_consecutive" else None)
+        employee_metrics.append(EmployeeMetrics(
+            employee_id=employee.id, minutes=minutes, nights=nights,
+            minutes_deviation=abs(minutes - employee.target_minutes),
+            nights_deviation=abs(nights - employee.target_nights),
+        ))
+
+    baseline = {row.cell: row.shift_id for row in problem.baseline}
+    changed = sum(baseline.get(cell) != assigned.get(cell) for cell in baseline.keys() | assigned.keys())
+    return Report(issues=issues, metrics=Metrics(
+        preference_total=preference_total, preference_met=preference_met,
+        weighted_preference_violations=weighted_violations, covered_slots=covered,
+        total_slots=len(problem.coverage), changed_cells=changed if baseline else None,
+        employees=employee_metrics,
+    ))
+
+
+def staffing_diagnostics(problem: Problem) -> list[Issue]:
+    """Prove simple staffing shortages using unavailable and fixed assignments."""
+    shifts = {s.id: s for s in problem.shifts}
+    upper = {(row.date, row.shift_id): row.maximum for row in problem.coverage}
+    fixed = defaultdict(list)
+    forbidden = defaultdict(set)
+    for row in [*problem.history, *problem.locks]:
+        fixed[row.cell].append(row.shift_id)
+    for row in problem.preferences:
+        if row.kind == "unavailable":
+            forbidden[row.employee_id, row.date].add(row.shift_id)
+    for rule in problem.rules:
+        cell = rule.employee_id, rule.date
+        if rule.type == "fixed":
+            fixed[cell].append(rule.shift_id)
+        if rule.type == "unavailable":
+            forbidden[cell].add(rule.shift_id)
+    fixed_by_employee = defaultdict(list)
+    for (employee_id, day), items in fixed.items():
+        for shift_id in set(items) - {"off"}:
+            fixed_by_employee[employee_id].append(Assignment(employee_id=employee_id, date=day, shift_id=shift_id))
+
+    requirements = [(r.date, r.shift_id, r.minimum, None, None) for r in problem.coverage if r.minimum]
+    requirements.extend((r.date, r.shift_id, r.value, r.skill_id, r.id) for r in problem.rules
+                        if r.type in {"min_coverage", "min_skill_coverage"})
+    result = []
+    for day, shift_id, minimum, skill, rule_id in requirements:
+        exclusions = Counter()
+        available = 0
+        for employee in problem.employees:
+            if skill and skill not in employee.skills:
+                continue
+            cell = employee.id, day
+            if forbidden[cell] & {None, shift_id}:
+                exclusions["勤務不可"] += 1
+            elif set(fixed[cell]) - {shift_id}:
+                exclusions["同日の固定勤務・休み"] += 1
+            else:
+                candidate = Assignment(employee_id=employee.id, date=day, shift_id=shift_id)
+                if any(incompatible(problem, shifts, fixed_row, candidate)
+                       for fixed_row in fixed_by_employee[employee.id] if fixed_row.date != day):
+                    exclusions["固定勤務との休息・夜勤翌日ルール"] += 1
+                else:
+                    available += 1
+        maximum = min(available, upper.get((day, shift_id), available))
+        if maximum < minimum:
+            explanation = "、".join(f"{name} {count}人" for name, count in exclusions.items())
+            reason = f"（{explanation}）" if explanation else ""
+            label = f"資格 {skill} の候補" if skill else "配置可能な候補"
+            result.append(Issue(code="staffing_shortage", date=day, shift_id=shift_id, rule_id=rule_id,
+                                message=f"{label}は最大{maximum}人、必要{minimum}人です{reason}"))
+    return result

@@ -1,0 +1,470 @@
+{
+  "$defs": {
+    "Assignment": {
+      "additionalProperties": false,
+      "properties": {
+        "employee_id": {
+          "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+          "title": "Employee Id",
+          "type": "string"
+        },
+        "date": {
+          "format": "date",
+          "title": "Date",
+          "type": "string"
+        },
+        "shift_id": {
+          "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+          "title": "Shift Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "employee_id",
+        "date",
+        "shift_id"
+      ],
+      "title": "Assignment",
+      "type": "object"
+    },
+    "Coverage": {
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "format": "date",
+          "title": "Date",
+          "type": "string"
+        },
+        "shift_id": {
+          "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+          "title": "Shift Id",
+          "type": "string"
+        },
+        "minimum": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Minimum",
+          "type": "integer"
+        },
+        "maximum": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Maximum",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "date",
+        "shift_id",
+        "minimum",
+        "maximum"
+      ],
+      "title": "Coverage",
+      "type": "object"
+    },
+    "Employee": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "skills": {
+          "items": {
+            "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Skills",
+          "type": "array"
+        },
+        "target_minutes": {
+          "maximum": 44640,
+          "minimum": 0,
+          "title": "Target Minutes",
+          "type": "integer"
+        },
+        "max_minutes": {
+          "maximum": 44640,
+          "minimum": 0,
+          "title": "Max Minutes",
+          "type": "integer"
+        },
+        "target_nights": {
+          "maximum": 31,
+          "minimum": 0,
+          "title": "Target Nights",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "skills",
+        "target_minutes",
+        "max_minutes",
+        "target_nights"
+      ],
+      "title": "Employee",
+      "type": "object"
+    },
+    "Limits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_consecutive": {
+          "maximum": 31,
+          "minimum": 1,
+          "title": "Max Consecutive",
+          "type": "integer"
+        },
+        "min_rest_minutes": {
+          "maximum": 1440,
+          "minimum": 0,
+          "title": "Min Rest Minutes",
+          "type": "integer"
+        },
+        "night_shift_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Night Shift Id"
+        },
+        "no_next_day_after_night": {
+          "title": "No Next Day After Night",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "max_consecutive",
+        "min_rest_minutes",
+        "no_next_day_after_night"
+      ],
+      "title": "Limits",
+      "type": "object"
+    },
+    "Preference": {
+      "additionalProperties": false,
+      "properties": {
+        "employee_id": {
+          "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+          "title": "Employee Id",
+          "type": "string"
+        },
+        "date": {
+          "format": "date",
+          "title": "Date",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "unavailable",
+            "prefer_off",
+            "prefer_shift"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "shift_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shift Id"
+        },
+        "weight": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Weight",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "employee_id",
+        "date",
+        "kind",
+        "weight"
+      ],
+      "title": "Preference",
+      "type": "object"
+    },
+    "Problem": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "start_date": {
+          "format": "date",
+          "title": "Start Date",
+          "type": "string"
+        },
+        "days": {
+          "maximum": 31,
+          "minimum": 1,
+          "title": "Days",
+          "type": "integer"
+        },
+        "employees": {
+          "items": {
+            "$ref": "#/$defs/Employee"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Employees",
+          "type": "array"
+        },
+        "shifts": {
+          "items": {
+            "$ref": "#/$defs/Shift"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Shifts",
+          "type": "array"
+        },
+        "coverage": {
+          "items": {
+            "$ref": "#/$defs/Coverage"
+          },
+          "maxItems": 372,
+          "title": "Coverage",
+          "type": "array"
+        },
+        "preferences": {
+          "items": {
+            "$ref": "#/$defs/Preference"
+          },
+          "maxItems": 3100,
+          "title": "Preferences",
+          "type": "array"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/Rule"
+          },
+          "maxItems": 120,
+          "title": "Rules",
+          "type": "array"
+        },
+        "locks": {
+          "items": {
+            "$ref": "#/$defs/Assignment"
+          },
+          "maxItems": 3100,
+          "title": "Locks",
+          "type": "array"
+        },
+        "baseline": {
+          "items": {
+            "$ref": "#/$defs/Assignment"
+          },
+          "maxItems": 3100,
+          "title": "Baseline",
+          "type": "array"
+        },
+        "history": {
+          "items": {
+            "$ref": "#/$defs/Assignment"
+          },
+          "maxItems": 3100,
+          "title": "History",
+          "type": "array"
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
+        }
+      },
+      "required": [
+        "schema_version",
+        "start_date",
+        "days",
+        "employees",
+        "shifts",
+        "coverage",
+        "preferences",
+        "rules",
+        "locks",
+        "baseline",
+        "history",
+        "limits"
+      ],
+      "title": "Problem",
+      "type": "object"
+    },
+    "Rule": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "min_skill_coverage",
+            "min_coverage",
+            "unavailable",
+            "fixed",
+            "max_consecutive",
+            "max_work_minutes"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Date"
+        },
+        "employee_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Employee Id"
+        },
+        "shift_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shift Id"
+        },
+        "skill_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Skill Id"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maximum": 44640,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "Rule",
+      "type": "object"
+    },
+    "Shift": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-zA-Z0-9_-]{1,48}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "start": {
+          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+          "title": "End",
+          "type": "string"
+        },
+        "paid_minutes": {
+          "exclusiveMinimum": 0,
+          "maximum": 1440,
+          "title": "Paid Minutes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "start",
+        "end",
+        "paid_minutes"
+      ],
+      "title": "Shift",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "problem": {
+      "$ref": "#/$defs/Problem"
+    },
+    "time_limit_seconds": {
+      "maximum": 60,
+      "minimum": 1,
+      "title": "Time Limit Seconds",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "problem",
+    "time_limit_seconds"
+  ],
+  "title": "SolveRequest",
+  "type": "object"
+}

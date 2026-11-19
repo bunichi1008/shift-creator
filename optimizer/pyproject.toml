@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shift-creator-optimizer"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["fastapi==0.165.0", "pydantic==2.14.3", "uvicorn==0.54.0"]
+
+[project.optional-dependencies]
+test = ["httpx==0.28.1"]
+
+[tool.setuptools.packages.find]
+include = ["shift_optimizer*"]
