@@ -1,35 +1,16 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import date, timedelta
+from datetime import date
 
+from .calendar_rules import DAY, conflict_reason
 from .models import (
-    Assignment, Cell, EmployeeMetrics, Issue, Metrics, Problem, Report, Shift, clock_minutes,
+    Assignment, Cell, EmployeeMetrics, Issue, Metrics, Problem, Report, Shift,
 )
-
-DAY = timedelta(days=1)
-
-
-def interval(day: date, shift: Shift) -> tuple[int, int]:
-    start = clock_minutes(shift.start)
-    end = clock_minutes(shift.end)
-    origin = day.toordinal() * 1440
-    return origin + start, origin + end + (1440 if end < start else 0)
 
 
 def incompatible(problem: Problem, shifts: dict[str, Shift], first: Assignment, second: Assignment) -> str:
-    if first.date == second.date:
-        return "勤務開始日が重複しています"
-    if first.date > second.date:
-        first, second = second, first
-    _, end = interval(first.date, shifts[first.shift_id])
-    start, _ = interval(second.date, shifts[second.shift_id])
-    if start - end < problem.limits.min_rest_minutes:
-        return "勤務間休息が不足しています"
-    if (problem.limits.no_next_day_after_night and
-            first.shift_id == problem.limits.night_shift_id and second.date == first.date + DAY):
-        return "夜勤翌日に新しい勤務が始まっています"
-    return ""
+    return conflict_reason(problem.limits, first.date, shifts[first.shift_id], second.date, shifts[second.shift_id])
 
 
 def validate(problem: Problem, assignments: list[Assignment]) -> Report:
@@ -161,18 +142,9 @@ def staffing_diagnostics(problem: Problem) -> list[Issue]:
     shifts = {s.id: s for s in problem.shifts}
     upper = {(row.date, row.shift_id): row.maximum for row in problem.coverage}
     fixed = defaultdict(list)
-    forbidden = defaultdict(set)
-    for row in [*problem.history, *problem.locks]:
+    forbidden = problem.unavailable_slots()
+    for row in [*problem.history, *problem.fixed_slots()]:
         fixed[row.cell].append(row.shift_id)
-    for row in problem.preferences:
-        if row.kind == "unavailable":
-            forbidden[row.employee_id, row.date].add(row.shift_id)
-    for rule in problem.rules:
-        cell = rule.employee_id, rule.date
-        if rule.type == "fixed":
-            fixed[cell].append(rule.shift_id)
-        if rule.type == "unavailable":
-            forbidden[cell].add(rule.shift_id)
     fixed_by_employee = defaultdict(list)
     for (employee_id, day), items in fixed.items():
         for shift_id in set(items) - {"off"}:

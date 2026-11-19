@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
+from collections.abc import Iterator
 from datetime import date as Date, timedelta
 from typing import Annotated, Literal
 
@@ -168,6 +170,22 @@ class Problem(Record):
         for rule in self.rules:
             self.check_rule(rule, employees, shifts, skills)
         return self
+
+    def unavailable_slots(self) -> dict[Cell, set[str | None]]:
+        result = defaultdict(set)
+        for preference in self.preferences:
+            if preference.kind == "unavailable":
+                result[preference.employee_id, preference.date].add(preference.shift_id)
+        for rule in self.rules:
+            if rule.type == "unavailable":
+                result[rule.employee_id, rule.date].add(rule.shift_id)
+        return result
+
+    def fixed_slots(self) -> Iterator[Assignment]:
+        yield from self.locks
+        for rule in self.rules:
+            if rule.type == "fixed":
+                yield Assignment(employee_id=rule.employee_id, date=rule.date, shift_id=rule.shift_id)
 
     def in_period(self, value: Date) -> bool:
         return self.start_date <= value <= self.end_date
