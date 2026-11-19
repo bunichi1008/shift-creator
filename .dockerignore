@@ -1,0 +1,7 @@
+.git
+.venv
+.shift-creator
+**/__pycache__
+**/*.egg-info
+.env
+.env.*

@@ -1,0 +1,10 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build-web
+    waitFor: ['-']
+    args: [build, -f, web/Dockerfile, -t, '$_WEB_IMAGE', .]
+  - name: gcr.io/cloud-builders/docker
+    id: build-optimizer
+    waitFor: ['-']
+    args: [build, -f, optimizer/Dockerfile, -t, '$_OPTIMIZER_IMAGE', .]
+images: ['$_WEB_IMAGE', '$_OPTIMIZER_IMAGE']

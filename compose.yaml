@@ -1,0 +1,21 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports: ["127.0.0.1:8080:8080"]
+    environment:
+      OPTIMIZER_URL: http://optimizer:8080
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    volumes: ["demo-data:/data"]
+    depends_on: [optimizer]
+  optimizer:
+    build:
+      context: .
+      dockerfile: optimizer/Dockerfile
+    environment:
+      OPTIMIZER_SOLVER: ${OPTIMIZER_SOLVER:-demo}
+
+volumes:
+  demo-data:
