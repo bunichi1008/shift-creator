@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shift Creator · 勤務表</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Shift Creator</a>
+  <div class="top-actions">
+    <button type="button" class="quiet" id="open-import">データ設定</button>
+    <a class="button quiet" href="/api/plan.csv">CSV 出力</a>
+  </div>
+</header>
+<main class="page">
+  <section class="page-header" aria-labelledby="page-title">
+    <div>
+      <p class="period" id="period">対象期間</p>
+      <h1 id="page-title">勤務表</h1>
+      <p class="meta" id="plan-meta"></p>
+    </div>
+    <div class="actions">
+      <button type="button" id="validate">違反を確認</button>
+      <button type="button" class="primary" id="generate">シフト生成</button>
+    </div>
+  </section>
+  <p class="notice" id="message" role="status" hidden></p>
+
+  <dl class="metrics" id="metrics" hidden></dl>
+
+  <div class="workspace">
+    <section class="card schedule" aria-labelledby="table-title">
+      <header class="section-heading">
+        <div>
+          <h2 id="table-title">勤務案</h2>
+          <p class="meta" id="schedule-mode">セルを選ぶと、勤務の変更・固定ができます。</p>
+        </div>
+        <div class="actions">
+          <button type="button" id="close-preview" hidden>編集中に戻る</button>
+          <button type="button" class="primary" id="adopt" hidden>勤務案に採用</button>
+        </div>
+      </header>
+      <div class="scroll-grid" id="schedule" tabindex="0" aria-label="勤務表のスクロール領域"></div>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <aside class="cards">
+      <section class="card padded" aria-labelledby="rules-title">
+        <header class="section-heading compact">
+          <h2 id="rules-title">勤務条件</h2>
+          <button type="button" id="open-rule">条件を追加</button>
+        </header>
+        <ul class="rules" id="rule-list"></ul>
+      </section>
+      <section class="card padded" aria-labelledby="ai-title">
+        <h2 id="ai-title">日本語から条件を提案</h2>
+        <p class="meta" id="ai-help">提案の内容を確認し、勤務条件に追加できます。</p>
+        <form id="ai-form">
+          <label class="sr-only" for="ai-input">日本語の勤務条件</label>
+          <textarea id="ai-input" rows="3" maxlength="500" placeholder="12月12日の夜勤にリーダーを最低1人" required></textarea>
+          <button type="submit">条件案を作る</button>
+        </form>
+        <p class="notice subtle" id="ai-feedback" role="status" hidden></p>
+      </section>
+    </aside>
+    <section class="card padded results" id="report-card" aria-labelledby="result-title" hidden>
+      <h2 id="result-title">検査結果</h2>
+      <p class="meta" id="result-message"></p>
+      <ul class="issues" id="issues"></ul>
+      <details id="employee-metrics" hidden>
+        <summary>職員ごとの勤務時間と夜勤回数</summary>
+        <div id="employee-metrics-table"></div>
+      </details>
+    </section>
+    <section class="card padded history" aria-labelledby="history-title">
+      <h2 id="history-title">実行履歴</h2>
+      <ul id="job-list" class="jobs"></ul>
+    </section>
+  </div>
+</main>
+
+<dialog id="cell-dialog">
+  <form id="cell-form">
+    <h2>勤務を編集</h2>
+    <p class="meta" id="cell-label"></p>
+    <label>勤務種別<select name="shift_id" id="cell-shift"></select></label>
+    <label class="check"><input type="checkbox" name="lock">このセルを固定する</label>
+    <div class="dialog-actions">
+      <button type="button" data-close>キャンセル</button>
+      <button type="submit" class="primary">変更を保存</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="rule-dialog">
+  <form id="rule-form">
+    <h2>勤務条件を追加</h2>
+    <p class="notice subtle" id="rule-source" hidden></p>
+    <label>条件の種類
+      <select name="type" id="rule-type">
+        <option value="min_skill_coverage">資格者の最低人数</option>
+        <option value="min_coverage">勤務枠の最低人数</option>
+        <option value="unavailable">勤務不可</option>
+        <option value="fixed">勤務・休みを固定</option>
+        <option value="max_consecutive">連勤の上限</option>
+        <option value="max_work_minutes">勤務時間の上限（分）</option>
+      </select>
+    </label>
+    <div class="form-grid">
+      <label data-field="date">日付<input type="date" name="date"></label>
+      <label data-field="employee_id">職員<select name="employee_id"></select></label>
+      <label data-field="shift_id">勤務種別<select name="shift_id"></select></label>
+      <label data-field="skill_id">資格<select name="skill_id"></select></label>
+      <label data-field="value" id="value-label"><span>数値</span><input type="number" name="value" min="0" max="44640" step="1"></label>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" data-close>キャンセル</button>
+      <button type="submit" class="primary">条件を確定</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="import-dialog">
+  <form id="import-form">
+    <h2>データ設定</h2>
+    <label>取り込むデータ
+      <select name="kind" id="import-kind">
+        <option value="employees">職員 CSV</option>
+        <option value="coverage">必要人数 CSV</option>
+        <option value="preferences">勤務希望 CSV</option>
+        <option value="problem">期間・勤務種別を含む全設定 JSON</option>
+      </select>
+    </label>
+    <p class="meta import-help" id="import-help"></p>
+    <label>ファイル<input type="file" name="file" accept=".csv,.json,text/csv,application/json" required></label>
+    <div class="dialog-actions">
+      <button type="button" id="export-settings">設定 JSON を保存</button>
+      <button type="button" data-close>キャンセル</button>
+      <button type="submit" class="primary">取り込む</button>
+    </div>
+  </form>
+  <div class="reset-area">
+    <button type="button" id="reset">サンプルに戻す</button>
+    <p class="meta">現在の入力と勤務案をサンプルで置き換えます。</p>
+  </div>
+</dialog>
+</body>
+</html>

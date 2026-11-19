@@ -1,0 +1,237 @@
+package main
+
+import (
+	"fmt"
+	"slices"
+	"time"
+)
+
+const schemaVersion = 1
+
+type Employee struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Skills        []string `json:"skills"`
+	TargetMinutes int      `json:"target_minutes"`
+	MaxMinutes    int      `json:"max_minutes"`
+	TargetNights  int      `json:"target_nights"`
+}
+
+type Shift struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Start       string `json:"start"`
+	End         string `json:"end"`
+	PaidMinutes int    `json:"paid_minutes"`
+}
+
+type Coverage struct {
+	Date    string `json:"date"`
+	ShiftID string `json:"shift_id"`
+	Minimum int    `json:"minimum"`
+	Maximum int    `json:"maximum"`
+}
+
+type Assignment struct {
+	EmployeeID string `json:"employee_id"`
+	Date       string `json:"date"`
+	ShiftID    string `json:"shift_id"`
+}
+
+type Preference struct {
+	EmployeeID string `json:"employee_id"`
+	Date       string `json:"date"`
+	Kind       string `json:"kind"`
+	ShiftID    string `json:"shift_id,omitempty"`
+	Weight     int    `json:"weight"`
+}
+
+type Rule struct {
+	ID         string `json:"id,omitempty"`
+	Type       string `json:"type"`
+	Date       string `json:"date,omitempty"`
+	EmployeeID string `json:"employee_id,omitempty"`
+	ShiftID    string `json:"shift_id,omitempty"`
+	SkillID    string `json:"skill_id,omitempty"`
+	Value      *int   `json:"value,omitempty"`
+}
+
+type Limits struct {
+	MaxConsecutive      int    `json:"max_consecutive"`
+	MinRestMinutes      int    `json:"min_rest_minutes"`
+	NightShiftID        string `json:"night_shift_id,omitempty"`
+	NoNextDayAfterNight bool   `json:"no_next_day_after_night"`
+}
+
+type Problem struct {
+	SchemaVersion int          `json:"schema_version"`
+	StartDate     string       `json:"start_date"`
+	Days          int          `json:"days"`
+	Employees     []Employee   `json:"employees"`
+	Shifts        []Shift      `json:"shifts"`
+	Coverage      []Coverage   `json:"coverage"`
+	Preferences   []Preference `json:"preferences"`
+	Rules         []Rule       `json:"rules"`
+	Locks         []Assignment `json:"locks"`
+	Baseline      []Assignment `json:"baseline"`
+	History       []Assignment `json:"history"`
+	Limits        Limits       `json:"limits"`
+}
+
+func (p Problem) validDate(value string) bool {
+	start, startErr := time.Parse(time.DateOnly, p.StartDate)
+	day, dayErr := time.Parse(time.DateOnly, value)
+	return startErr == nil && dayErr == nil && !day.Before(start) && day.Before(start.AddDate(0, 0, p.Days))
+}
+
+func (p Problem) validEmployee(id string) bool {
+	return slices.ContainsFunc(p.Employees, func(e Employee) bool { return e.ID == id })
+}
+
+func (p Problem) validShift(id string) bool {
+	return slices.ContainsFunc(p.Shifts, func(s Shift) bool { return s.ID == id })
+}
+
+func (p Problem) validSkill(id string) bool {
+	return slices.ContainsFunc(p.Employees, func(e Employee) bool { return slices.Contains(e.Skills, id) })
+}
+
+func (p Problem) checkRule(rule Rule) error {
+	var date, employee, shift, skill bool
+	var min, max int
+	switch rule.Type {
+	case "min_skill_coverage", "min_coverage":
+		date, shift, skill, min, max = true, true, rule.Type == "min_skill_coverage", 1, 100
+	case "fixed":
+		date, employee, shift = true, true, true
+	case "unavailable":
+		date, employee, shift = true, true, rule.ShiftID != ""
+	case "max_consecutive":
+		employee, min, max = rule.EmployeeID != "", 1, 31
+	case "max_work_minutes":
+		employee, max = true, 44640
+	default:
+		return inputError("未対応の条件です")
+	}
+	if date != (rule.Date != "") || employee != (rule.EmployeeID != "") ||
+		shift != (rule.ShiftID != "") || skill != (rule.SkillID != "") || (max != 0) != (rule.Value != nil) {
+		return inputError("条件に必要な項目を確認してください")
+	}
+	if date && !p.validDate(rule.Date) {
+		return inputError("対象期間の日付を指定してください")
+	}
+	if employee && !p.validEmployee(rule.EmployeeID) {
+		return inputError("職員を確認してください")
+	}
+	if shift && !p.validShift(rule.ShiftID) && !(rule.Type == "fixed" && rule.ShiftID == "off") {
+		return inputError("勤務種別を確認してください")
+	}
+	if skill && !p.validSkill(rule.SkillID) {
+		return inputError("資格を確認してください")
+	}
+	if rule.Value != nil && (*rule.Value < min || *rule.Value > max) {
+		return inputError(fmt.Sprintf("数値は %d〜%d の範囲で指定してください", min, max))
+	}
+	return nil
+}
+
+type Plan struct {
+	Revision  int       `json:"revision"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Problem   Problem   `json:"problem"`
+}
+
+type SolveRequest struct {
+	Problem          Problem `json:"problem"`
+	TimeLimitSeconds int     `json:"time_limit_seconds"`
+}
+
+type ValidationRequest struct {
+	Problem     Problem      `json:"problem"`
+	Assignments []Assignment `json:"assignments"`
+}
+
+type Issue struct {
+	Code       string `json:"code"`
+	Message    string `json:"message"`
+	EmployeeID string `json:"employee_id,omitempty"`
+	Date       string `json:"date,omitempty"`
+	ShiftID    string `json:"shift_id,omitempty"`
+	RuleID     string `json:"rule_id,omitempty"`
+}
+
+type EmployeeMetrics struct {
+	EmployeeID       string `json:"employee_id"`
+	Minutes          int    `json:"minutes"`
+	Nights           int    `json:"nights"`
+	MinutesDeviation int    `json:"minutes_deviation"`
+	NightsDeviation  int    `json:"nights_deviation"`
+}
+
+type Metrics struct {
+	PreferenceTotal              int               `json:"preference_total"`
+	PreferenceMet                int               `json:"preference_met"`
+	WeightedPreferenceViolations int               `json:"weighted_preference_violations"`
+	CoveredSlots                 int               `json:"covered_slots"`
+	TotalSlots                   int               `json:"total_slots"`
+	ChangedCells                 *int              `json:"changed_cells"`
+	Employees                    []EmployeeMetrics `json:"employees"`
+}
+
+type Report struct {
+	Issues  []Issue `json:"issues"`
+	Metrics Metrics `json:"metrics"`
+}
+
+type SolveResult struct {
+	Status      string             `json:"status"`
+	Solver      string             `json:"solver"`
+	Message     string             `json:"message"`
+	Assignments []Assignment       `json:"assignments"`
+	Report      *Report            `json:"report"`
+	Diagnostics []Issue            `json:"diagnostics"`
+	Objective   map[string]float64 `json:"objective"`
+	BestBound   *float64           `json:"best_bound"`
+	Gap         *float64           `json:"gap"`
+	ElapsedMS   int                `json:"elapsed_ms"`
+}
+
+func (r SolveResult) adoptable() bool {
+	return (r.Status == "optimal" || r.Status == "feasible" || r.Status == "demo_valid") &&
+		r.Report != nil && len(r.Report.Issues) == 0
+}
+
+type Job struct {
+	ID           string       `json:"id"`
+	PlanRevision int          `json:"plan_revision"`
+	State        string       `json:"state"`
+	CreatedAt    time.Time    `json:"created_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
+	Attempt      int          `json:"attempt"`
+	Dispatched   bool         `json:"dispatched"`
+	LeaseUntil   time.Time    `json:"lease_until"`
+	RetryAfter   time.Time    `json:"retry_after"`
+	Snapshot     Problem      `json:"snapshot"`
+	Result       *SolveResult `json:"result,omitempty"`
+	Error        string       `json:"error,omitempty"`
+}
+
+type JobView struct {
+	ID           string       `json:"id"`
+	PlanRevision int          `json:"plan_revision"`
+	State        string       `json:"state"`
+	CreatedAt    time.Time    `json:"created_at"`
+	Result       *SolveResult `json:"result,omitempty"`
+	Error        string       `json:"error,omitempty"`
+}
+
+func (j Job) view() JobView {
+	return JobView{
+		ID: j.ID, PlanRevision: j.PlanRevision, State: j.State, CreatedAt: j.CreatedAt,
+		Result: j.Result, Error: j.Error,
+	}
+}
+
+type inputError string
+
+func (e inputError) Error() string { return string(e) }
