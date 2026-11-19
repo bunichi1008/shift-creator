@@ -1,4 +1,4 @@
-"""End-to-end smoke test with the demonstration backend running."""
+"""End-to-end smoke test with the demo or PuLP backend running."""
 import json
 import os
 import time
@@ -7,6 +7,10 @@ from urllib.request import Request, urlopen
 from uuid import uuid4
 
 ORIGIN = os.environ.get("SMOKE_WEB_URL", "http://127.0.0.1:18080")
+
+
+SOLVER = os.environ.get("SMOKE_SOLVER", "demo")
+SOLUTION_STATUSES = {"optimal", "feasible"} if SOLVER == "pulp" else {"demo_valid"}
 
 
 def call(path, method="GET", body=None, status=200, raw=False):
@@ -24,7 +28,7 @@ def call(path, method="GET", body=None, status=200, raw=False):
 
 def solve(revision):
     job = call("/api/jobs", "POST", {"revision": revision, "idempotency_key": str(uuid4())}, 202)
-    for _ in range(75):
+    for _ in range(210):
         job = call("/api/jobs/" + job["id"])
         if job["state"] in ("completed", "failed"):
             assert job["state"] == "completed", job
@@ -50,7 +54,8 @@ rule = {
 }
 plan = call("/api/plan/rules", "POST", {"revision": initial["revision"], "rule": rule}, 201)
 first = solve(plan["revision"])
-assert first["result"]["status"] == "demo_valid", first
+assert first["result"]["status"] in SOLUTION_STATUSES, first
+assert first["result"]["report"]["issues"] == []
 assert first["result"]["report"]["metrics"]["covered_slots"] == 124
 adopted = call("/api/jobs/" + first["id"] + "/adopt", "POST", {"revision": plan["revision"]})
 call("/api/jobs/" + first["id"] + "/adopt", "POST", {"revision": adopted["revision"]}, 409)
@@ -63,10 +68,25 @@ locked = call("/api/plan/cell", "PATCH", {
 check = call("/api/validation")
 assert any(issue["code"] == "coverage" for issue in check["report"]["issues"])
 second = solve(locked["revision"])
-assert second["result"]["status"] == "demo_invalid", second
-assert any(issue["code"] == "locked_assignment" for issue in second["result"]["report"]["issues"])
-call("/api/jobs/" + second["id"] + "/adopt", "POST", {"revision": locked["revision"]}, 422)
+if SOLVER == "pulp":
+    assert second["result"]["status"] in SOLUTION_STATUSES, second
+    assert second["result"]["report"]["issues"] == []
+    assert second["result"]["report"]["metrics"]["changed_cells"] > 0
+    assert not any(row["employee_id"] == assigned["employee_id"] and row["date"] == assigned["date"]
+                   for row in second["result"]["assignments"])
+    replanned = call("/api/jobs/" + second["id"] + "/adopt", "POST", {"revision": locked["revision"]})
+    impossible = call("/api/plan/rules", "POST", {
+        "revision": replanned["revision"], "rule": {**rule, "value": 25},
+    }, 201)
+    failed = solve(impossible["revision"])
+    assert failed["result"]["status"] == "infeasible", failed
+    assert any(issue["code"] == "staffing_shortage" for issue in failed["result"]["diagnostics"])
+    call("/api/jobs/" + failed["id"] + "/adopt", "POST", {"revision": impossible["revision"]}, 422)
+else:
+    assert second["result"]["status"] == "demo_invalid", second
+    assert any(issue["code"] == "locked_assignment" for issue in second["result"]["report"]["issues"])
+    call("/api/jobs/" + second["id"] + "/adopt", "POST", {"revision": locked["revision"]}, 422)
 content = call("/api/plan.csv", raw=True).decode("utf-8-sig")
 assert content.startswith("employee_id,employee_name,date,shift_id,locked")
 assert ",off,true" in content
-print("Smoke test passed: form rules, async jobs, fixed cells, validation, stale adoption, and CSV")
+print(f"Smoke test passed ({SOLVER}): form rules, async jobs, fixed cells, validation, stale adoption, and CSV")

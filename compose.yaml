@@ -15,7 +15,7 @@ services:
       context: .
       dockerfile: optimizer/Dockerfile
     environment:
-      OPTIMIZER_SOLVER: ${OPTIMIZER_SOLVER:-demo}
+      OPTIMIZER_SOLVER: ${OPTIMIZER_SOLVER:-pulp}
 
 volumes:
   demo-data:

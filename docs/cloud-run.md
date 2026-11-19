@@ -46,7 +46,7 @@ done
 
 ## ビルドとデプロイ
 
-リポジトリのルートから実行します。サンプル用の Python 設定は `OPTIMIZER_SOLVER=demo` です。PuLP の実装を追加したらアダプターのエントリーポイントに置き換えます。
+リポジトリのルートから実行します。Python は既定で PuLP と HiGHS を使います。下のコマンドでは `OPTIMIZER_SOLVER=pulp` を明示します。固定サンプルを再生する場合は `demo` を指定できます。
 
 ```sh
 TAG=$(git rev-parse --short HEAD)
@@ -61,7 +61,7 @@ gcloud run deploy "$OPTIMIZER" --image "$OPTIMIZER_IMAGE" \
   --region "$REGION" --project "$PROJECT" --no-allow-unauthenticated \
   --cpu-throttling --min-instances=0 --max-instances=2 \
   --concurrency=1 --timeout=75s --cpu=1 --memory=512Mi \
-  --set-env-vars OPTIMIZER_SOLVER=demo
+  --set-env-vars OPTIMIZER_SOLVER=pulp
 
 gcloud run services add-iam-policy-binding "$OPTIMIZER" \
   --region "$REGION" --project "$PROJECT" \
