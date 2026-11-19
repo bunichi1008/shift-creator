@@ -180,3 +180,19 @@ def staffing_diagnostics(problem: Problem) -> list[Issue]:
             result.append(Issue(code="staffing_shortage", date=day, shift_id=shift_id, rule_id=rule_id,
                                 message=f"{label}は最大{maximum}人、必要{minimum}人です{reason}"))
     return result
+
+
+def fixed_diagnostics(problem: Problem) -> list[Issue]:
+    """Detect irreversible conflicts already present in fixed working cells."""
+    fixed = {(row.cell, row.shift_id): row for row in problem.fixed_slots() if row.shift_id != "off"}
+    if not fixed:
+        return []
+    report = validate(problem, list(fixed.values()))
+    codes = {
+        "duplicate_assignment", "unavailable", "fixed", "locked_assignment",
+        "rest", "max_consecutive", "max_work_minutes",
+    }
+    return [
+        issue.model_copy(update={"message": f"固定勤務の組み合わせで違反が発生します。{issue.message}"})
+        for issue in report.issues if issue.code in codes
+    ]

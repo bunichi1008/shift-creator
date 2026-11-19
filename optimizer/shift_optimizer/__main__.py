@@ -25,7 +25,7 @@ def main() -> None:
         print(validate(req.problem, req.assignments).model_dump_json(indent=2))
     else:
         req = SolveRequest.model_validate_json(args.path.read_text())
-        solver = load_solver(os.environ.get("OPTIMIZER_SOLVER", "none"),
+        solver = load_solver(os.environ.get("OPTIMIZER_SOLVER", "pulp"),
                              Path(os.environ.get("DEMO_DATA_PATH", DEFAULT_DEMO)))
         print(run_solver(req, solver).model_dump_json(indent=2))
 

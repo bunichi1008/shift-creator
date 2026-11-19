@@ -16,7 +16,7 @@ DEFAULT_DEMO = Path(__file__).resolve().parents[2] / "contracts" / "demo.json"
 
 def create_app(solver: Solver | None = None) -> FastAPI:
     if solver is None:
-        solver = load_solver(os.environ.get("OPTIMIZER_SOLVER", "none"),
+        solver = load_solver(os.environ.get("OPTIMIZER_SOLVER", "pulp"),
                              Path(os.environ.get("DEMO_DATA_PATH", DEFAULT_DEMO)))
     app = FastAPI(title="Shift Creator Optimizer", version="1.0")
 

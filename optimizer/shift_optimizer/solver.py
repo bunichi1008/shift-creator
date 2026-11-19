@@ -7,7 +7,7 @@ from pathlib import Path
 from time import monotonic
 
 from .models import Assignment, SolveRequest, SolveResult
-from .validation import staffing_diagnostics, validate
+from .validation import fixed_diagnostics, staffing_diagnostics, validate
 
 Solver = Callable[[SolveRequest], SolveResult]
 
@@ -20,9 +20,11 @@ def load_solver(backend: str, demo_path: Path) -> Solver:
         rows = [Assignment.model_validate(row) for row in demo["assignments"]]
         return lambda request: demo_solver(request, rows)
 
+    if backend == "pulp":
+        backend = "shift_optimizer.pulp_solver:solve"
     module_name, separator, attribute = backend.partition(":")
     if not separator or not module_name or not attribute:
-        raise ValueError("OPTIMIZER_SOLVER must be none, demo, or module:function")
+        raise ValueError("OPTIMIZER_SOLVER must be pulp, demo, none, or module:function")
     solve = getattr(importlib.import_module(module_name), attribute)
     if not callable(solve):
         raise TypeError("solver entry point must be callable")
@@ -50,7 +52,10 @@ def run_solver(request: SolveRequest, solver: Solver) -> SolveResult:
     started = monotonic()
     result = SolveResult.model_validate(solver(request))
     result.elapsed_ms = round((monotonic() - started) * 1000)
-    result.diagnostics = [*staffing_diagnostics(request.problem), *result.diagnostics]
+    diagnostics = staffing_diagnostics(request.problem)
+    if result.status == "infeasible":
+        diagnostics.extend(fixed_diagnostics(request.problem))
+    result.diagnostics = [*diagnostics, *result.diagnostics]
     if result.status in {"optimal", "feasible", "demo_valid", "demo_invalid"}:
         result.report = validate(request.problem, result.assignments)
         if result.report.issues:
