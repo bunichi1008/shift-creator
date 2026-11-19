@@ -65,6 +65,10 @@ func run(ctx context.Context) error {
 	var persistence store = &fileStore{dir: env("DATA_DIR", "../.shift-creator")}
 	s := server{store: persistence, demo: demo, now: time.Now, opt: opt, adminToken: os.Getenv("DEMO_ADMIN_TOKEN")}
 	s.jobs = jobService{store: persistence, optimizer: opt, timeLimit: timeout, clock: time.Now}
+	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		s.proposer = openAIProposer{apiKey: apiKey, model: env("OPENAI_MODEL", "gpt-4o-mini"),
+			endpoint: openAIEndpoint, http: client}
+	}
 	port := env("PORT", "8080")
 	localAddress := env("LISTEN_ADDR", "127.0.0.1:"+port)
 	initCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
