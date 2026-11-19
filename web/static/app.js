@@ -3,7 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const state = {
   plan: null, jobs: [], active: null, liveReport: null, poll: 0,
-  ruleRevision: 0, cell: null, submitting: false, submitKey: null,
+  ruleRevision: 0, cell: null, submitKey: null,
 };
 
 const ruleTypes = {
@@ -140,7 +140,8 @@ function render() {
   $("adopt").hidden = !preview || !["optimal", "feasible", "demo_valid"].includes(job?.result?.status)
     || job.result.report.issues.length > 0;
   $("table-title").textContent = preview ? "生成結果のプレビュー" : "勤務案";
-  $("schedule-mode").textContent = preview ? "青い枠は、現在の勤務案から変わったセルです。"
+  $("schedule-mode").textContent = preview
+    ? (p.baseline.length ? "青い枠は、現在の勤務案から変わったセルです。" : "採用すると、この勤務表を編集できます。")
     : "セルを選ぶと、勤務の変更・固定ができます。";
   renderSchedule(days, preview ? job.result.assignments : p.baseline, preview);
   renderRules();
@@ -183,7 +184,7 @@ function renderSchedule(days, assignments, preview) {
       const key = employee.id + "/" + day.date;
       const shift = selected.get(key) || "off";
       const locked = locks.has(key);
-      const changed = preview && shift !== (original.get(key) || "off");
+      const changed = preview && p.baseline.length > 0 && shift !== (original.get(key) || "off");
       const pill = el(preview ? "span" : "button", shift === "off" ? "休" : shiftName(shift).slice(0, 2), "shift");
       pill.dataset.tone = colors.get(shift) ?? "";
       if (locked) pill.classList.add("locked");
@@ -281,16 +282,23 @@ function renderReport() {
     const preferences = m.preference_total ? m.preference_met + " / " + m.preference_total : "対象なし";
     const coverage = m.covered_slots + " / " + m.total_slots;
     for (const [label, value] of [["必要人数を満たす枠", coverage], ["希望反映", preferences],
-      ["必須条件違反", report.issues.length + " 件"], ["変更セル", m.changed_cells ?? "—"]]) {
+      ["必須条件違反", report.issues.length + " 件"], ["変更セル", (job && m.changed_cells) ?? "—"]]) {
       const card = el("div");
       card.append(el("dt", label), el("dd", value));
+      if (label === "必須条件違反" && (report.issues.length || diagnostics.length)) {
+        const link = el("a", "詳細を見る", "meta");
+        link.href = "#report-card";
+        card.append(link);
+      }
       stats.append(card);
     }
   }
   $("result-title").textContent = job ? labelFor(job) : "検査結果";
   const stale = job && job.plan_revision !== state.plan.revision ? "以前の入力版の実行結果です。" : "";
+  const execution = job?.result?.solver !== "none" && job?.result
+    ? job.result.solver + " ／ " + job.result.elapsed_ms + " ms" : "";
   $("result-message").textContent = [job?.result?.message || job?.error ||
-    (job?.state === "queued" ? "最適化サービスの実行を待っています。" : ""), stale].filter(Boolean).join(" ");
+    (job?.state === "queued" ? "最適化サービスの実行を待っています。" : ""), execution, stale].filter(Boolean).join(" ");
   const issueRows = [...diagnostics, ...(report?.issues || [])];
   $("issues").replaceChildren(...issueRows.map((issue) => {
     const scope = [issue.date, issue.employee_id && personName(issue.employee_id), issue.shift_id && shiftName(issue.shift_id)]
@@ -343,6 +351,8 @@ async function pollJob(id, generation) {
     render();
     if (!["completed", "failed"].includes(job.state)) {
       setTimeout(() => pollJob(id, generation), 1500);
+    } else {
+      showNotice("message", labelFor(job), job.state === "failed" || job.result?.status === "error");
     }
   } catch (error) {
     if (generation !== state.poll) return;

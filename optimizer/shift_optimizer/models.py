@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import re
 from datetime import date as Date, timedelta
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, FiniteFloat, model_validator
 
 ID = Annotated[str, Field(pattern=r"^[a-zA-Z0-9_-]{1,48}$")]
 Name = Annotated[str, Field(min_length=1, max_length=80)]
@@ -13,6 +14,13 @@ RuleType = Literal[
     "min_skill_coverage", "min_coverage", "unavailable", "fixed", "max_consecutive",
     "max_work_minutes",
 ]
+def date_only(value: object) -> object:
+    if type(value) is Date or (isinstance(value, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value)):
+        return value
+    raise ValueError("date must be a YYYY-MM-DD calendar date")
+
+
+CalendarDate = Annotated[Date, BeforeValidator(date_only)]
 Cell = tuple[str, Date]
 
 
@@ -59,7 +67,7 @@ def clock_minutes(value: str) -> int:
 
 
 class Coverage(Record):
-    date: Date
+    date: CalendarDate
     shift_id: ID
     minimum: int = Field(strict=True, ge=0, le=100)
     maximum: int = Field(strict=True, ge=0, le=100)
@@ -67,7 +75,7 @@ class Coverage(Record):
 
 class Assignment(Record):
     employee_id: ID
-    date: Date
+    date: CalendarDate
     shift_id: ID
 
     @property
@@ -77,7 +85,7 @@ class Assignment(Record):
 
 class Preference(Record):
     employee_id: ID
-    date: Date
+    date: CalendarDate
     kind: Literal["unavailable", "prefer_off", "prefer_shift"]
     shift_id: ID | None = None
     weight: int = Field(strict=True, ge=1, le=100)
@@ -86,7 +94,7 @@ class Preference(Record):
 class Rule(Record):
     id: ID
     type: RuleType
-    date: Date | None = None
+    date: CalendarDate | None = None
     employee_id: ID | None = None
     shift_id: ID | None = None
     skill_id: ID | None = None
@@ -102,7 +110,7 @@ class Limits(Record):
 
 class Problem(Record):
     schema_version: Literal[1]
-    start_date: Date
+    start_date: CalendarDate
     days: int = Field(strict=True, ge=1, le=31)
     employees: list[Employee] = Field(min_length=1, max_length=100)
     shifts: list[Shift] = Field(min_length=1, max_length=12)
@@ -210,7 +218,7 @@ class Issue(Record):
     code: str
     message: str
     employee_id: ID | None = None
-    date: Date | None = None
+    date: CalendarDate | None = None
     shift_id: ID | None = None
     rule_id: ID | None = None
 
@@ -248,7 +256,7 @@ class SolveResult(Record):
     assignments: list[Assignment] = Field(default_factory=list, max_length=3100)
     report: Report | None = None
     diagnostics: list[Issue] = Field(default_factory=list, max_length=3100)
-    objective: dict[str, float] = Field(default_factory=dict)
-    best_bound: float | None = None
-    gap: float | None = None
+    objective: dict[str, FiniteFloat] = Field(default_factory=dict)
+    best_bound: FiniteFloat | None = None
+    gap: FiniteFloat | None = None
     elapsed_ms: int = 0

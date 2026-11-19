@@ -196,7 +196,7 @@ def staffing_diagnostics(problem: Problem) -> list[Issue]:
             else:
                 candidate = Assignment(employee_id=employee.id, date=day, shift_id=shift_id)
                 if any(incompatible(problem, shifts, fixed_row, candidate)
-                       for fixed_row in fixed_by_employee[employee.id] if fixed_row.date != day):
+                       for fixed_row in fixed_by_employee[employee.id] if 0 < abs((fixed_row.date - day).days) <= 2):
                     exclusions["固定勤務との休息・夜勤翌日ルール"] += 1
                 else:
                     available += 1

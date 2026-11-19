@@ -1,6 +1,6 @@
 import json
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import httpx
@@ -45,10 +45,10 @@ class OptimizerTest(unittest.IsolatedAsyncioTestCase):
         report = validate(self.request.problem, [*self.assignments, late])
         self.assertTrue(any(issue.code == "rest" and issue.date == start for issue in report.issues))
 
-        day = date(2026, 12, 12)
         problem = self.request.problem
+        day = problem.rules[0].date
         problem.locks = [
-            Assignment(employee_id=employee.id, date=date(2026, 12, 11), shift_id="night")
+            Assignment(employee_id=employee.id, date=day - timedelta(days=1), shift_id="night")
             for employee in problem.employees if "leader" in employee.skills
         ]
         shortage = next(issue for issue in staffing_diagnostics(problem) if issue.rule_id == "dec-night-leader")
@@ -67,4 +67,11 @@ class OptimizerTest(unittest.IsolatedAsyncioTestCase):
             })
             self.assertEqual(report.json()["issues"], [])
             body["problem"]["rules"].append(Rule(id="bad", type="fixed").model_dump(mode="json"))
+            self.assertEqual((await client.post("/v1/solve", json=body)).status_code, 422)
+
+    async def test_api_rejects_dates_that_do_not_round_trip_through_go(self):
+        transport = httpx.ASGITransport(app=create_app(unavailable_solver))
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            body = self.request.model_dump(mode="json")
+            body["problem"]["start_date"] = "2026-12-01T00:00:00"
             self.assertEqual((await client.post("/v1/solve", json=body)).status_code, 422)
