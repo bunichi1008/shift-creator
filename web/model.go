@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -99,23 +100,52 @@ func (p Problem) validSkill(id string) bool {
 func (p Problem) checkRule(rule Rule) error {
 	var date, employee, shift, skill bool
 	var min, max int
+	valueLabel := "数値"
 	switch rule.Type {
 	case "min_skill_coverage", "min_coverage":
 		date, shift, skill, min, max = true, true, rule.Type == "min_skill_coverage", 1, 100
+		valueLabel = "最低人数"
 	case "fixed":
 		date, employee, shift = true, true, true
 	case "unavailable":
 		date, employee, shift = true, true, rule.ShiftID != ""
 	case "max_consecutive":
 		employee, min, max = rule.EmployeeID != "", 1, 31
+		valueLabel = "連勤の上限日数"
 	case "max_work_minutes":
 		employee, max = true, 44640
+		valueLabel = "勤務時間の上限（分）"
 	default:
 		return inputError("未対応の条件です")
 	}
-	if date != (rule.Date != "") || employee != (rule.EmployeeID != "") ||
-		shift != (rule.ShiftID != "") || skill != (rule.SkillID != "") || (max != 0) != (rule.Value != nil) {
-		return inputError("条件に必要な項目を確認してください")
+	fields := []struct {
+		label   string
+		expects bool
+		present bool
+	}{
+		{"対象日", date, rule.Date != ""},
+		{"職員", employee, rule.EmployeeID != ""},
+		{"勤務枠", shift, rule.ShiftID != ""},
+		{"資格", skill, rule.SkillID != ""},
+		{valueLabel, max != 0, rule.Value != nil},
+	}
+	var missing, unexpected []string
+	for _, field := range fields {
+		if field.expects && !field.present {
+			missing = append(missing, field.label)
+		}
+		if !field.expects && field.present {
+			unexpected = append(unexpected, field.label)
+		}
+	}
+	if len(missing) > 0 {
+		if shift && rule.ShiftID == "" && rule.Type != "fixed" {
+			return inputError(strings.Join(missing, "と") + "を指定してください。全勤務枠に適用する場合は、勤務枠ごとに条件を追加してください")
+		}
+		return inputError(strings.Join(missing, "と") + "を指定してください")
+	}
+	if len(unexpected) > 0 {
+		return inputError("この種類の条件では" + strings.Join(unexpected, "と") + "の指定を外してください")
 	}
 	if date && !p.validDate(rule.Date) {
 		return inputError("対象期間の日付を指定してください")

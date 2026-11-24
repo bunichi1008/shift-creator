@@ -122,7 +122,7 @@ async function refreshPlan() {
   const form = $("ai-form");
   form.querySelectorAll("textarea, button").forEach((input) => { input.disabled = !data.has_llm; });
   $("ai-help").textContent = data.has_llm
-    ? "提案の内容を確認し、勤務条件に追加できます。"
+    ? "人数の条件には日付と勤務枠を入れてください。提案を確認してから登録できます。"
     : "OpenAI API を設定すると利用できます。勤務条件はフォームから追加できます。";
   setPlan(data.plan);
 }

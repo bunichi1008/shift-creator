@@ -73,6 +73,39 @@ func TestRuleProposalDoesNotChangeRevision(t *testing.T) {
 	}
 }
 
+func TestCoverageProposalWithNoShiftExplainsHowToSpecifyIt(t *testing.T) {
+	p, err := demoFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	minimum := 2
+	rule := Rule{Type: "min_skill_coverage", Date: "2026-12-12", SkillID: "leader", Value: &minimum}
+	checked, err := checkedProposal(p, "12月12日にリーダーを常に2人", Proposal{Status: "proposal", Rule: &rule})
+	if err != nil || checked.Status != "clarify" || checked.Rule != nil ||
+		!strings.Contains(checked.Question, "勤務枠を指定してください") ||
+		!strings.Contains(checked.Question, "勤務枠ごとに条件を追加してください") {
+		t.Fatalf("missing shift did not produce a specific clarification: %+v, %v", checked, err)
+	}
+	if strings.Contains(checked.Question, "入力を確認してください") {
+		t.Fatalf("clarification repeated a generic instruction: %q", checked.Question)
+	}
+}
+
+func TestRuleValidationReportsMissingAndUnexpectedFields(t *testing.T) {
+	p, err := demoFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.checkRule(Rule{Type: "min_coverage", ShiftID: "night"}); err == nil ||
+		err.Error() != "対象日と最低人数を指定してください" {
+		t.Fatalf("wrong error for missing coverage fields: %v", err)
+	}
+	value := 2
+	if err := p.checkRule(Rule{Type: "fixed", Date: "2026-12-12", ShiftID: "off", EmployeeID: p.Employees[0].ID, Value: &value}); err == nil || err.Error() != "この種類の条件では数値の指定を外してください" {
+		t.Fatalf("wrong error for unexpected fixed rule field: %v", err)
+	}
+}
+
 type staticProposal struct{}
 
 func (staticProposal) propose(context.Context, Problem, string) (Proposal, error) {
