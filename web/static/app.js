@@ -3,7 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const state = {
   plan: null, jobs: [], active: null, liveReport: null, poll: 0,
-  ruleRevision: 0, cell: null, submitKey: null,
+  ruleRevision: 0, ruleID: null, cell: null, submitKey: null,
   proposalRules: [],
 };
 
@@ -230,18 +230,25 @@ function describeRule(rule) {
 function renderRules() {
   const list = $("rule-list");
   list.replaceChildren();
-  for (const rule of state.plan.problem.rules) {
+  for (const rule of state.plan.problem.rules || []) {
     const row = el("li");
-    const remove = el("button", "削除", "remove-rule");
+    const description = describeRule(rule);
+    const edit = el("button", "編集", "rule-action");
+    edit.type = "button";
+    edit.setAttribute("aria-label", description + "を編集");
+    edit.addEventListener("click", () => openRule(rule, "", rule.id));
+    const remove = el("button", "削除", "rule-action");
     remove.type = "button";
-    remove.setAttribute("aria-label", describeRule(rule) + "を削除");
+    remove.setAttribute("aria-label", description + "を削除");
     remove.addEventListener("click", () => runAction(remove, async () => {
       setPlan(await api("/api/plan/rules/" + encodeURIComponent(rule.id), {
         method: "DELETE", body: { revision: state.plan.revision },
       }));
       showNotice("message", "勤務条件を削除しました。");
     }));
-    row.append(el("span", describeRule(rule)), remove);
+    const actions = el("div", undefined, "rule-actions");
+    actions.append(edit, remove);
+    row.append(el("span", description), actions);
     list.append(row);
   }
   if (!list.childElementCount) list.append(el("li", "追加の勤務条件はありません。", "meta"));
@@ -426,8 +433,10 @@ function syncRuleScope() {
   }
 }
 
-function openRule(values = {}, source = "") {
+function openRule(values = {}, source = "", id = null) {
   state.ruleRevision = state.plan.revision;
+  state.ruleID = id;
+  $("rule-dialog-title").textContent = id ? "勤務条件を編集" : "勤務条件を追加";
   $("rule-type").value = values.type || "min_skill_coverage";
   ruleFields(values);
   showNotice("rule-source", source && "提案元の入力 ／ " + source);
@@ -521,10 +530,12 @@ $("rule-form").addEventListener("submit", (event) => {
     if ("value" in rule) rule.value = Number(rule.value);
     if ("all_dates" in rule) rule.all_dates = true;
     if ("all_shifts" in rule) rule.all_shifts = true;
-    const plan = await api("/api/plan/rules", { method: "POST", body: { revision: state.ruleRevision, rule } });
+    const id = state.ruleID;
+    const path = id ? "/api/plan/rules/" + encodeURIComponent(id) : "/api/plan/rules";
+    const plan = await api(path, { method: id ? "PUT" : "POST", body: { revision: state.ruleRevision, rule } });
     $("rule-dialog").close();
     setPlan(plan);
-    showNotice("message", "勤務条件を追加しました。");
+    showNotice("message", id ? "勤務条件を更新しました。" : "勤務条件を追加しました。");
   }, form);
 });
 
@@ -617,7 +628,7 @@ document.querySelectorAll("[data-close]").forEach((button) => {
   button.addEventListener("click", () => button.closest("dialog").close());
 });
 
-const initializationButtons = ["validate", "generate", "open-rule", "open-import"];
+const initializationButtons = ["validate", "generate", "open-rule", "open-import", "open-settings"];
 initializationButtons.forEach((id) => { $(id).disabled = true; });
 refreshPlan().then(() => {
   initializationButtons.forEach((id) => { $(id).disabled = false; });

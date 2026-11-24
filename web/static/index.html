@@ -6,6 +6,7 @@
   <title>Shift Creator · 勤務表</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/app.js" defer></script>
+  <script src="/settings.js" defer></script>
 </head>
 <body>
 <header class="topbar">
@@ -54,6 +55,7 @@
           <button type="button" id="open-rule">条件を追加</button>
         </header>
         <ul class="rules" id="rule-list"></ul>
+        <button type="button" id="open-settings">基本設定を編集</button>
       </section>
       <section class="card padded" aria-labelledby="ai-title">
         <h2 id="ai-title">日本語から条件を提案</h2>
@@ -97,7 +99,7 @@
 
 <dialog id="rule-dialog">
   <form id="rule-form">
-    <h2>勤務条件を追加</h2>
+    <h2 id="rule-dialog-title">勤務条件を追加</h2>
     <p class="notice subtle" id="rule-source" hidden></p>
     <label>条件の種類
       <select name="type" id="rule-type">
@@ -133,6 +135,60 @@
     <div class="dialog-actions">
       <button type="button" data-close>キャンセル</button>
       <button type="submit" class="primary">まとめて追加</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="settings-dialog" aria-labelledby="settings-title">
+  <form id="settings-form" novalidate>
+    <h2 id="settings-title">シフトの基本設定</h2>
+    <div class="settings-nav" role="group" aria-label="設定項目">
+      <button type="button" data-settings-tab="shifts">勤務種別</button>
+      <button type="button" data-settings-tab="coverage">必要人数</button>
+      <button type="button" data-settings-tab="staff">職員</button>
+      <button type="button" data-settings-tab="preferences">勤務希望</button>
+      <button type="button" data-settings-tab="optimization">勤務ルール・最適化</button>
+    </div>
+    <section data-settings-panel="shifts" aria-label="勤務種別">
+      <div class="settings-table" id="settings-shifts"></div>
+    </section>
+    <section data-settings-panel="coverage" aria-label="必要人数" hidden>
+      <label>勤務種別<select id="settings-coverage-shift"></select></label>
+      <div class="coverage-bulk">
+        <label>最低人数<input type="number" id="coverage-bulk-min" min="0" max="100" step="1"></label>
+        <label>最大人数<input type="number" id="coverage-bulk-max" min="0" max="100" step="1"></label>
+        <button type="button" id="coverage-apply-all">この勤務の全日に入力</button>
+      </div>
+      <p class="meta">上下限を両方空欄にすると、その日の人数枠を解除します。資格者の条件は「勤務条件」で編集できます。</p>
+      <div class="settings-table" id="settings-coverage"></div>
+    </section>
+    <section data-settings-panel="staff" aria-label="職員" hidden>
+      <div class="settings-table" id="settings-staff"></div>
+    </section>
+    <section data-settings-panel="preferences" aria-label="勤務希望" hidden>
+      <p class="meta">重みが大きい希望ほど、外れたときのペナルティが大きくなります。</p>
+      <div class="settings-table" id="settings-preferences"></div>
+    </section>
+    <section data-settings-panel="optimization" aria-label="勤務ルールと最適化" hidden>
+      <div class="form-grid">
+        <label>連勤の上限（日）<input type="number" name="max_consecutive" min="1" max="31" step="1" required></label>
+        <label>勤務間の最低休息（分）<input type="number" name="min_rest_minutes" min="0" max="1440" step="1" required></label>
+        <label>夜勤として扱う勤務<select name="night_shift_id"></select></label>
+        <label class="check"><input type="checkbox" name="no_next_day_after_night">夜勤翌日の勤務を禁止</label>
+      </div>
+      <fieldset>
+        <legend>最適化の優先順</legend>
+        <p class="meta">上位の目的で最良の値を保ったまま、次の目的を最適化します。基準の勤務案がない場合は変更数を飛ばします。</p>
+        <div class="form-grid" id="settings-objective-order"></div>
+        <label>夜勤1回のズレを勤務時間何分のズレとして扱うか
+          <input type="number" name="night_deviation_weight" min="0" max="1440" step="1" required>
+        </label>
+        <p class="meta">0にすると、目標夜勤回数からのズレを評価しません。</p>
+      </fieldset>
+    </section>
+    <div class="dialog-actions">
+      <button type="button" data-close>キャンセル</button>
+      <button type="submit" class="primary">設定を保存</button>
     </div>
   </form>
 </dialog>

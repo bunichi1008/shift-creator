@@ -60,6 +60,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /api/plan/reset", s.admin(s.resetPlan))
 	mux.HandleFunc("PATCH /api/plan/cell", s.admin(s.editCell))
 	mux.HandleFunc("POST /api/plan/rules", s.admin(s.addRule))
+	mux.HandleFunc("PUT /api/plan/rules/{id}", s.admin(s.editRule))
 	mux.HandleFunc("DELETE /api/plan/rules/{id}", s.admin(s.deleteRule))
 	mux.HandleFunc("GET /api/plan.csv", s.admin(s.exportPlan))
 	mux.HandleFunc("POST /api/plan/proposals", s.admin(s.proposeRule))
@@ -289,6 +290,28 @@ func (s *server) addRule(w http.ResponseWriter, r *http.Request) {
 				rules[index].ID = id
 			}
 			p.Rules = append(p.Rules, rules...)
+			return nil
+		})
+	})
+}
+
+func (s *server) editRule(w http.ResponseWriter, r *http.Request) {
+	type request struct {
+		Revision int  `json:"revision"`
+		Rule     Rule `json:"rule"`
+	}
+	handleJSON(w, r, 200, func(body request) (any, error) {
+		return s.updatePlan(r.Context(), body.Revision, func(p *Problem) error {
+			id := r.PathValue("id")
+			index := slices.IndexFunc(p.Rules, func(rule Rule) bool { return rule.ID == id })
+			if index < 0 {
+				return errNotFound
+			}
+			if err := p.checkRule(body.Rule); err != nil {
+				return err
+			}
+			body.Rule.ID = id
+			p.Rules[index] = body.Rule
 			return nil
 		})
 	})
