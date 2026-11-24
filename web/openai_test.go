@@ -198,6 +198,28 @@ func TestProposalRequiresExplicitAvailabilityScope(t *testing.T) {
 			t.Fatalf("inferred restrictions: %+v, %v", got, err)
 		}
 	}
+	got, err = checkedProposal(p, "石井 凛は毎週火曜と12月3日だけ出勤可能です", Proposal{Status: "proposal", Rule: &rule})
+	if err != nil || got.Status != "clarify" {
+		t.Fatalf("an unmentioned date was accepted: %+v, %v", got, err)
+	}
+	rule.Dates = []string{"2026-12-03", "2026-12-04", "2026-12-05"}
+	got, err = checkedProposal(p, "石井 凛は１２月３日〜５日だけ出勤可能です", Proposal{Status: "proposal", Rule: &rule})
+	if err != nil || got.Status != "proposal" {
+		t.Fatalf("an explicit range was rejected: %+v, %v", got, err)
+	}
+}
+
+func TestProposalDoesNotAssumeDailyCoverage(t *testing.T) {
+	p, err := demoFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := 1
+	rule := Rule{Type: "min_skill_coverage", AllDates: true, ShiftID: "night", SkillID: "leader", Value: &value}
+	got, err := checkedProposal(p, "夜勤にリーダーを入れて", Proposal{Status: "proposal", Rules: []Rule{rule}})
+	if err != nil || got.Status != "clarify" {
+		t.Fatalf("daily scope was inferred: %+v, %v", got, err)
+	}
 }
 
 func TestProposalResolvesRedundantScopeAndExplicitSkill(t *testing.T) {
