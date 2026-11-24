@@ -76,6 +76,8 @@ SMOKE_SOLVER=pulp scripts/smoke.sh
 
 OpenAI 連携はモックでテストできます。実際のモデルを比較する場合は、12月のサンプルを読み込んだ状態で `.venv/bin/python scripts/evaluate_llm.py --allow-api-calls` を実行します。評価用の入力についてルールの完全一致、曖昧な入力への確認、誤提案、応答時間を集計します。実行は API 利用量を消費します。
 
+画面の動線と提出前に確認したケースは [提出前検証](docs/verification.md) を参照してください。
+
 ## デプロイ構成
 
 同じリポジトリから Go と Python のコンテナを個別に作ります。Cloud Run の Go が Firestore に現在の入力版と各ジョブの入力スナップショットを保存し、Cloud Tasks のコールバックを受けて、IAM 認証付きで非公開の Python サービスを呼びます。Python は入力を検証してソルバーを実行します。Go は実行権を版付きで管理し、二重配送や古い結果の採用を防ぎます。
