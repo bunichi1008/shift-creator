@@ -4,7 +4,9 @@ from datetime import date, timedelta
 
 import pulp
 
-from shift_optimizer.models import Assignment, Coverage, Employee, Limits, Preference, Problem, Rule, Shift, SolveRequest
+from shift_optimizer.models import (
+    Assignment, Coverage, Employee, Limits, Optimization, Preference, Problem, Rule, Shift, SolveRequest,
+)
 from shift_optimizer.pulp_solver import optimize, solve
 from shift_optimizer.pulp_solver.coverage import add_coverage
 from shift_optimizer.pulp_solver.model import RosterModel
@@ -147,6 +149,35 @@ class SchedulingTest(unittest.TestCase):
         self.assertEqual([row.employee_id for row in result.assignments], ["second"])
         self.assertEqual(result.objective["changed_cells"], 2)
         self.assertEqual(result.objective["weighted_preference_violations"], 0)
+
+    def test_configured_fairness_precedes_preferences(self):
+        p = self.choice_problem(
+            preferences=[Preference(employee_id="first", date=START, kind="prefer_shift", shift_id="day", weight=2)],
+            optimization=Optimization(order=("fairness_cost", "weighted_preference_violations", "changed_cells")),
+        )
+        result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(result.status, "optimal", result)
+        self.assertEqual([row.employee_id for row in result.assignments], ["second"])
+        self.assertEqual(result.objective["weighted_preference_violations"], 2)
+
+    def test_night_weight_changes_the_assignment_and_reported_cost(self):
+        p = problem(
+            days=1,
+            employees=[employee("first", nights=1, target=0), employee("second", target=480)],
+            shifts=[NIGHT],
+            coverage=[Coverage(date=START, shift_id="night", minimum=1, maximum=1)],
+            optimization=Optimization(night_deviation_weight=10),
+        )
+        result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(result.status, "optimal", result)
+        self.assertEqual([row.employee_id for row in result.assignments], ["second"])
+        self.assertEqual(result.objective["fairness_cost"], 20)
+
+        p.optimization = Optimization(night_deviation_weight=1000)
+        result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(result.status, "optimal", result)
+        self.assertEqual([row.employee_id for row in result.assignments], ["first"])
+        self.assertEqual(result.objective["fairness_cost"], 960)
 
     def test_later_time_limit_preserves_previous_feasible_schedule(self):
         p = self.choice_problem(preferences=[

@@ -156,6 +156,39 @@
       "title": "Limits",
       "type": "object"
     },
+    "Optimization": {
+      "additionalProperties": false,
+      "properties": {
+        "order": {
+          "default": [
+            "weighted_preference_violations",
+            "changed_cells",
+            "fairness_cost"
+          ],
+          "items": {
+            "enum": [
+              "weighted_preference_violations",
+              "changed_cells",
+              "fairness_cost"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Order",
+          "type": "array"
+        },
+        "night_deviation_weight": {
+          "default": 480,
+          "maximum": 1440,
+          "minimum": 0,
+          "title": "Night Deviation Weight",
+          "type": "integer"
+        }
+      },
+      "title": "Optimization",
+      "type": "object"
+    },
     "Preference": {
       "additionalProperties": false,
       "properties": {
@@ -294,6 +327,17 @@
         },
         "limits": {
           "$ref": "#/$defs/Limits"
+        },
+        "optimization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Optimization"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [

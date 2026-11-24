@@ -16,6 +16,12 @@ RuleType = Literal[
     "min_skill_coverage", "min_coverage", "unavailable", "fixed", "max_consecutive",
     "max_work_minutes",
 ]
+ObjectiveStage = Literal["weighted_preference_violations", "changed_cells", "fairness_cost"]
+DEFAULT_OBJECTIVE_ORDER: tuple[ObjectiveStage, ...] = (
+    "weighted_preference_violations", "changed_cells", "fairness_cost",
+)
+
+
 def date_only(value: object) -> object:
     if type(value) is Date or (isinstance(value, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value)):
         return value
@@ -112,6 +118,17 @@ class Limits(Record):
     no_next_day_after_night: bool = Field(strict=True)
 
 
+class Optimization(Record):
+    order: tuple[ObjectiveStage, ...] = Field(default=DEFAULT_OBJECTIVE_ORDER, min_length=3, max_length=3)
+    night_deviation_weight: int = Field(default=480, strict=True, ge=0, le=1440)
+
+    @model_validator(mode="after")
+    def check_order(self) -> Optimization:
+        if len(set(self.order)) != len(self.order):
+            raise ValueError("optimization order must include each objective once")
+        return self
+
+
 class Problem(Record):
     schema_version: Literal[1]
     start_date: CalendarDate
@@ -125,6 +142,11 @@ class Problem(Record):
     baseline: list[Assignment] = Field(max_length=3100)
     history: list[Assignment] = Field(max_length=3100)
     limits: Limits
+    optimization: Optimization | None = None
+
+    @property
+    def objective_settings(self) -> Optimization:
+        return self.optimization if self.optimization is not None else Optimization()
 
     @property
     def end_date(self) -> Date:

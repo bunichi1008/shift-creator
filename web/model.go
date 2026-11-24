@@ -67,19 +67,25 @@ type Limits struct {
 	NoNextDayAfterNight bool   `json:"no_next_day_after_night"`
 }
 
+type Optimization struct {
+	Order                *[]string `json:"order,omitempty"`
+	NightDeviationWeight *int      `json:"night_deviation_weight,omitempty"`
+}
+
 type Problem struct {
-	SchemaVersion int          `json:"schema_version"`
-	StartDate     string       `json:"start_date"`
-	Days          int          `json:"days"`
-	Employees     []Employee   `json:"employees"`
-	Shifts        []Shift      `json:"shifts"`
-	Coverage      []Coverage   `json:"coverage"`
-	Preferences   []Preference `json:"preferences"`
-	Rules         []Rule       `json:"rules"`
-	Locks         []Assignment `json:"locks"`
-	Baseline      []Assignment `json:"baseline"`
-	History       []Assignment `json:"history"`
-	Limits        Limits       `json:"limits"`
+	SchemaVersion int           `json:"schema_version"`
+	StartDate     string        `json:"start_date"`
+	Days          int           `json:"days"`
+	Employees     []Employee    `json:"employees"`
+	Shifts        []Shift       `json:"shifts"`
+	Coverage      []Coverage    `json:"coverage"`
+	Preferences   []Preference  `json:"preferences"`
+	Rules         []Rule        `json:"rules"`
+	Locks         []Assignment  `json:"locks"`
+	Baseline      []Assignment  `json:"baseline"`
+	History       []Assignment  `json:"history"`
+	Limits        Limits        `json:"limits"`
+	Optimization  *Optimization `json:"optimization,omitempty"`
 }
 
 func (p Problem) validDate(value string) bool {
