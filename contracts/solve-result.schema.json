@@ -124,6 +124,30 @@
           ],
           "default": null,
           "title": "Rule Id"
+        },
+        "start_time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Time"
+        },
+        "end_time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Time"
         }
       },
       "required": [
@@ -154,6 +178,16 @@
         },
         "total_slots": {
           "title": "Total Slots",
+          "type": "integer"
+        },
+        "covered_time_segments": {
+          "default": 0,
+          "title": "Covered Time Segments",
+          "type": "integer"
+        },
+        "total_time_segments": {
+          "default": 0,
+          "title": "Total Time Segments",
           "type": "integer"
         },
         "changed_cells": {

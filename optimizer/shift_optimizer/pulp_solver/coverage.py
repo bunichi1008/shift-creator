@@ -1,17 +1,16 @@
+from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
 
 import pulp
 
+from ..time_staffing import time_staffing_segments
 from .model import RosterModel
 
 
 @dataclass(frozen=True)
 class Shortage:
-    date: date
-    shift_id: str
     skill_id: str | None
-    rule_id: str | None
+    scope: dict
     variable: pulp.LpVariable
 
 
@@ -19,21 +18,36 @@ def add_coverage(roster: RosterModel, *, relax_minimums: bool = False) -> list[S
     """Share staffing expressions between the strict model and the diagnostic model."""
     shortages: list[Shortage] = []
 
-    def lower_bound(day: date, shift_id: str, minimum: int, skill_id: str | None = None,
-                    rule_id: str | None = None) -> None:
-        candidates = roster.slots[day, shift_id]
-        count = pulp.lpSum(variable for employee_id, variable in candidates.items()
-                           if skill_id is None or skill_id in roster.employees[employee_id].skills)
+    def lower_bound(count, minimum, scope, skill_id=None) -> None:
         if relax_minimums:
             slack = roster.mip.add_variable(f"shortage_{len(shortages)}", lowBound=0, upBound=minimum)
-            shortages.append(Shortage(day, shift_id, skill_id, rule_id, slack))
-            count += slack
+            shortages.append(Shortage(skill_id, scope, slack))
+            count = count + slack
         roster.add("staffing_min", count >= minimum)
 
-    for row in roster.problem.coverage:
+    def eligible(employee_id, skill_id):
+        return skill_id is None or skill_id in roster.employees[employee_id].skills
+
+    def assigned(slots, skill_id=None):
+        return pulp.lpSum(variable for slot in slots for employee_id, variable in roster.slots.get(slot, {}).items()
+                          if eligible(employee_id, skill_id))
+
+    for row in roster.problem.shift_staffing:
+        count = assigned([(row.date, row.shift_id)])
+        roster.add("staffing_max", count <= row.maximum)
         if row.minimum:
-            lower_bound(row.date, row.shift_id, row.minimum)
-        roster.add("staffing_max", pulp.lpSum(roster.slots[row.date, row.shift_id].values()) <= row.maximum)
+            lower_bound(count, row.minimum, dict(date=row.date, shift_id=row.shift_id))
     for rule, day, shift in roster.problem.coverage_rule_slots():
-        lower_bound(day, shift, rule.value, rule.skill_id, rule.id)
+        lower_bound(assigned([(day, shift)], rule.skill_id), rule.value,
+                    dict(date=day, shift_id=shift, rule_id=rule.id), rule.skill_id)
+
+    history = defaultdict(list)
+    for row in roster.problem.history:
+        history[row.date, row.shift_id].append(row.employee_id)
+    for segment in time_staffing_segments(roster.problem):
+        skill = segment.rule.skill_id
+        already_on_duty = {employee_id for slot in segment.slots for employee_id in history.get(slot, ())
+                           if eligible(employee_id, skill)}
+        count = assigned(segment.slots, skill) + len(already_on_duty)
+        lower_bound(count, segment.rule.value, segment.issue_scope(), skill)
     return shortages

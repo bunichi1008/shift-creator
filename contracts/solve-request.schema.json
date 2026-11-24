@@ -285,6 +285,11 @@
           "title": "Coverage",
           "type": "array"
         },
+        "use_shift_coverage": {
+          "default": true,
+          "title": "Use Shift Coverage",
+          "type": "boolean"
+        },
         "preferences": {
           "items": {
             "$ref": "#/$defs/Preference"
@@ -372,7 +377,8 @@
             "unavailable",
             "fixed",
             "max_consecutive",
-            "max_work_minutes"
+            "max_work_minutes",
+            "min_time_coverage"
           ],
           "title": "Type",
           "type": "string"
@@ -438,6 +444,32 @@
           ],
           "default": null,
           "title": "Skill Id"
+        },
+        "start_time": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Time"
+        },
+        "end_time": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Time"
         },
         "value": {
           "anyOf": [

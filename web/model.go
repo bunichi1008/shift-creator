@@ -57,6 +57,8 @@ type Rule struct {
 	AllDates   bool   `json:"all_dates,omitempty"`
 	AllShifts  bool   `json:"all_shifts,omitempty"`
 	SkillID    string `json:"skill_id,omitempty"`
+	StartTime  string `json:"start_time,omitempty"`
+	EndTime    string `json:"end_time,omitempty"`
 	Value      *int   `json:"value,omitempty"`
 }
 
@@ -73,19 +75,20 @@ type Optimization struct {
 }
 
 type Problem struct {
-	SchemaVersion int           `json:"schema_version"`
-	StartDate     string        `json:"start_date"`
-	Days          int           `json:"days"`
-	Employees     []Employee    `json:"employees"`
-	Shifts        []Shift       `json:"shifts"`
-	Coverage      []Coverage    `json:"coverage"`
-	Preferences   []Preference  `json:"preferences"`
-	Rules         []Rule        `json:"rules"`
-	Locks         []Assignment  `json:"locks"`
-	Baseline      []Assignment  `json:"baseline"`
-	History       []Assignment  `json:"history"`
-	Limits        Limits        `json:"limits"`
-	Optimization  *Optimization `json:"optimization,omitempty"`
+	SchemaVersion    int           `json:"schema_version"`
+	StartDate        string        `json:"start_date"`
+	Days             int           `json:"days"`
+	Employees        []Employee    `json:"employees"`
+	Shifts           []Shift       `json:"shifts"`
+	Coverage         []Coverage    `json:"coverage"`
+	UseShiftCoverage *bool         `json:"use_shift_coverage,omitempty"`
+	Preferences      []Preference  `json:"preferences"`
+	Rules            []Rule        `json:"rules"`
+	Locks            []Assignment  `json:"locks"`
+	Baseline         []Assignment  `json:"baseline"`
+	History          []Assignment  `json:"history"`
+	Limits           Limits        `json:"limits"`
+	Optimization     *Optimization `json:"optimization,omitempty"`
 }
 
 func (p Problem) validDate(value string) bool {
@@ -111,12 +114,16 @@ func (p Problem) checkRule(rule Rule) error {
 	var min, max int
 	valueLabel := "数値"
 	coverage := rule.Type == "min_skill_coverage" || rule.Type == "min_coverage"
-	if !coverage && (rule.AllDates || rule.AllShifts) {
+	timeCoverage := rule.Type == "min_time_coverage"
+	if (!coverage && rule.AllShifts) || (!coverage && !timeCoverage && rule.AllDates) {
 		return inputError("全日・全勤務枠の指定は配置人数の条件で使えます")
 	}
 	switch rule.Type {
 	case "min_skill_coverage", "min_coverage":
 		date, shift, skill, min, max = !rule.AllDates, !rule.AllShifts, rule.Type == "min_skill_coverage", 1, 100
+		valueLabel = "最低人数"
+	case "min_time_coverage":
+		date, skill, min, max = !rule.AllDates, rule.SkillID != "", 1, 100
 		valueLabel = "最低人数"
 	case "fixed":
 		date, employee, shift = true, true, true
@@ -140,6 +147,8 @@ func (p Problem) checkRule(rule Rule) error {
 		{"職員", employee, rule.EmployeeID != ""},
 		{"勤務枠", shift, rule.ShiftID != ""},
 		{"資格", skill, rule.SkillID != ""},
+		{"開始時刻", timeCoverage, rule.StartTime != ""},
+		{"終了時刻", timeCoverage, rule.EndTime != ""},
 		{valueLabel, max != 0, rule.Value != nil},
 	}
 	var missing, unexpected []string
@@ -168,6 +177,17 @@ func (p Problem) checkRule(rule Rule) error {
 	}
 	if skill && !p.validSkill(rule.SkillID) {
 		return inputError("資格を確認してください")
+	}
+	if timeCoverage {
+		for _, value := range []string{rule.StartTime, rule.EndTime} {
+			clock, err := time.Parse("15:04", value)
+			if err != nil || clock.Format("15:04") != value {
+				return inputError("開始・終了時刻を HH:MM で指定してください")
+			}
+		}
+		if rule.StartTime == rule.EndTime && rule.StartTime != "00:00" {
+			return inputError("開始と終了は別の時刻を指定してください")
+		}
 	}
 	if rule.Value != nil && (*rule.Value < min || *rule.Value > max) {
 		return inputError(fmt.Sprintf("数値は %d〜%d の範囲で指定してください", min, max))
@@ -216,6 +236,8 @@ type Issue struct {
 	Date       string `json:"date,omitempty"`
 	ShiftID    string `json:"shift_id,omitempty"`
 	RuleID     string `json:"rule_id,omitempty"`
+	StartTime  string `json:"start_time,omitempty"`
+	EndTime    string `json:"end_time,omitempty"`
 }
 
 type EmployeeMetrics struct {
@@ -232,6 +254,8 @@ type Metrics struct {
 	WeightedPreferenceViolations int               `json:"weighted_preference_violations"`
 	CoveredSlots                 int               `json:"covered_slots"`
 	TotalSlots                   int               `json:"total_slots"`
+	CoveredTimeSegments          int               `json:"covered_time_segments"`
+	TotalTimeSegments            int               `json:"total_time_segments"`
 	ChangedCells                 *int              `json:"changed_cells"`
 	Employees                    []EmployeeMetrics `json:"employees"`
 }

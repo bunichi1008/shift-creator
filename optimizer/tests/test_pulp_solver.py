@@ -55,6 +55,47 @@ class ConstraintTest(unittest.TestCase):
                          {("first", "night"), ("second", "day")})
         self.assertEqual(validate(p, rows).issues, [])
 
+    def test_time_coverage_combines_overlapping_shifts(self):
+        early = Shift(id="early", name="早番", start="07:00", end="15:00", paid_minutes=480)
+        late = Shift(id="late", name="遅番", start="14:00", end="22:00", paid_minutes=480)
+        p = problem(
+            days=1, shifts=[early, late],
+            limits=Limits(max_consecutive=5, min_rest_minutes=660, no_next_day_after_night=False),
+            coverage=[Coverage(date=START, shift_id=s.id, minimum=0, maximum=1) for s in (early, late)],
+            rules=[Rule(id="overlap", type="min_time_coverage", date=START,
+                        start_time="14:00", end_time="15:00", value=2)],
+        )
+        result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(result.status, "optimal", result)
+        self.assertEqual({row.shift_id for row in result.assignments}, {"early", "late"})
+        self.assertEqual(result.report.metrics.covered_time_segments, 1)
+
+        p.rules[0].end_time = "15:01"
+        report = validate(p, result.assignments)
+        self.assertEqual([(i.start_time, i.end_time) for i in report.issues], [("15:00", "15:01")])
+        failed = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(failed.status, "infeasible", failed)
+        self.assertTrue(any((i.start_time, i.end_time) == ("15:00", "15:01") for i in failed.diagnostics))
+
+    def test_time_coverage_counts_carry_in_and_last_night(self):
+        p = problem(
+            days=1,
+            employees=[employee("first", skills=["leader"]), employee("second", skills=["leader"])],
+            history=[Assignment(employee_id="first", date=START - DAY, shift_id="night")],
+            use_shift_coverage=False,
+            coverage=[Coverage(date=START, shift_id="night", minimum=0, maximum=0)],
+            rules=[Rule(id="night-lead", type="min_time_coverage", all_dates=True, skill_id="leader",
+                        start_time="22:00", end_time="07:00", value=1)],
+        )
+        result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(result.status, "optimal", result)
+        self.assertIn(Assignment(employee_id="second", date=START, shift_id="night"), result.assignments)
+        self.assertEqual(result.report.metrics.covered_time_segments, 3)
+        self.assertEqual(result.report.metrics.total_slots, 0)
+        missing = validate(p, [])
+        self.assertEqual([(i.date, i.start_time, i.end_time) for i in missing.issues],
+                         [(START, "22:00", "24:00"), (START + DAY, "00:00", "07:00")])
+
     def test_fixed_shift_for_an_unavailable_employee_is_infeasible(self):
         p = problem(
             preferences=[Preference(employee_id="first", date=START, kind="unavailable", shift_id="day", weight=1)],

@@ -7,6 +7,7 @@ from .calendar_rules import DAY, conflict_reason
 from .models import (
     Assignment, Cell, EmployeeMetrics, Issue, Metrics, Problem, Report, Shift,
 )
+from .time_staffing import time_staffing_segments
 
 
 def incompatible(problem: Problem, shifts: dict[str, Shift], first: Assignment, second: Assignment) -> str:
@@ -29,6 +30,7 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
     by_slot: dict[tuple[date, str], list[str]] = defaultdict(list)
     for row in problem.history:
         by_employee[row.employee_id].append(row)
+        by_slot[row.date, row.shift_id].append(row.employee_id)
     for row in assignments:
         if row.employee_id not in employees or row.shift_id not in shifts or not problem.in_period(row.date):
             cell_issue("invalid_assignment", "職員・日付・勤務枠を確認してください", row)
@@ -41,7 +43,7 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
         by_employee[row.employee_id].append(row)
 
     covered = 0
-    for row in problem.coverage:
+    for row in problem.shift_staffing:
         count = len(by_slot[row.date, row.shift_id])
         if row.minimum <= count <= row.maximum:
             covered += 1
@@ -74,6 +76,25 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
             label = f"資格 {rule.skill_id} の職員" if rule.skill_id else "職員"
             issue(rule.type, f"{label}が{rule.value - count}人不足しています（{count}/{rule.value}）",
                   date=day, shift_id=shift, rule_id=rule.id)
+
+    covered_time = total_time = time_shortages = 0
+    for segment in time_staffing_segments(problem):
+        total_time += 1
+        rule = segment.rule
+        on_duty = {key for slot in segment.slots for key in by_slot[slot]
+                   if rule.skill_id is None or rule.skill_id in employees[key].skills}
+        count = len(on_duty)
+        if count >= rule.value:
+            covered_time += 1
+        else:
+            time_shortages += 1
+            if time_shortages > 3100:
+                continue
+            label = f"資格 {rule.skill_id} の職員" if rule.skill_id else "職員"
+            issue(rule.type, f"{label}が{rule.value - count}人不足しています（{count}/{rule.value}）",
+                  **segment.issue_scope())
+    if time_shortages > 3100:
+        issue("min_time_coverage", f"ほかに{time_shortages - 3100}件の時間帯で人数が不足しています")
 
     employee_metrics = []
     limits_by_employee = defaultdict(list)
@@ -132,7 +153,8 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
     return Report(issues=issues, metrics=Metrics(
         preference_total=preference_total, preference_met=preference_met,
         weighted_preference_violations=weighted_violations, covered_slots=covered,
-        total_slots=len(problem.coverage), changed_cells=changed if baseline else None,
+        total_slots=len(problem.shift_staffing), covered_time_segments=covered_time, total_time_segments=total_time,
+        changed_cells=changed if baseline else None,
         employees=employee_metrics,
     ))
 
@@ -140,7 +162,7 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
 def staffing_diagnostics(problem: Problem) -> list[Issue]:
     """Prove simple staffing shortages using unavailable and fixed assignments."""
     shifts = {s.id: s for s in problem.shifts}
-    upper = {(row.date, row.shift_id): row.maximum for row in problem.coverage}
+    upper = {(row.date, row.shift_id): row.maximum for row in problem.shift_staffing}
     fixed = defaultdict(list)
     forbidden = problem.unavailable_slots()
     for row in [*problem.history, *problem.fixed_slots()]:
@@ -150,7 +172,7 @@ def staffing_diagnostics(problem: Problem) -> list[Issue]:
         for shift_id in set(items) - {"off"}:
             fixed_by_employee[employee_id].append(Assignment(employee_id=employee_id, date=day, shift_id=shift_id))
 
-    requirements = [(r.date, r.shift_id, r.minimum, None, None) for r in problem.coverage if r.minimum]
+    requirements = [(r.date, r.shift_id, r.minimum, None, None) for r in problem.shift_staffing if r.minimum]
     requirements.extend((day, shift, rule.value, rule.skill_id, rule.id)
                         for rule, day, shift in problem.coverage_rule_slots())
     result = []

@@ -55,7 +55,7 @@ def run_solver(request: SolveRequest, solver: Solver) -> SolveResult:
     diagnostics = staffing_diagnostics(request.problem)
     if result.status == "infeasible":
         diagnostics.extend(fixed_diagnostics(request.problem))
-    result.diagnostics = [*diagnostics, *result.diagnostics]
+    result.diagnostics = [*diagnostics, *result.diagnostics][:3100]
     if result.status in {"optimal", "feasible", "demo_valid", "demo_invalid"}:
         result.report = validate(request.problem, result.assignments)
         if result.report.issues:

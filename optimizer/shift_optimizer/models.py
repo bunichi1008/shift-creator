@@ -14,7 +14,7 @@ Clock = Annotated[str, Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")]
 Minutes = Annotated[int, Field(strict=True, ge=0, le=44_640)]
 RuleType = Literal[
     "min_skill_coverage", "min_coverage", "unavailable", "fixed", "max_consecutive",
-    "max_work_minutes",
+    "max_work_minutes", "min_time_coverage",
 ]
 ObjectiveStage = Literal["weighted_preference_violations", "changed_cells", "fairness_cost"]
 DEFAULT_OBJECTIVE_ORDER: tuple[ObjectiveStage, ...] = (
@@ -108,6 +108,8 @@ class Rule(Record):
     all_dates: bool = Field(default=False, strict=True)
     all_shifts: bool = Field(default=False, strict=True)
     skill_id: ID | None = None
+    start_time: Clock | None = None
+    end_time: Clock | None = None
     value: int | None = Field(default=None, strict=True, ge=0, le=44_640)
 
 
@@ -136,6 +138,7 @@ class Problem(Record):
     employees: list[Employee] = Field(min_length=1, max_length=100)
     shifts: list[Shift] = Field(min_length=1, max_length=12)
     coverage: list[Coverage] = Field(max_length=372)
+    use_shift_coverage: bool = Field(default=True, strict=True)
     preferences: list[Preference] = Field(max_length=3100)
     rules: list[Rule] = Field(max_length=120)
     locks: list[Assignment] = Field(max_length=3100)
@@ -151,6 +154,10 @@ class Problem(Record):
     @property
     def end_date(self) -> Date:
         return self.start_date + timedelta(days=self.days - 1)
+
+    @property
+    def shift_staffing(self) -> list[Coverage]:
+        return self.coverage if self.use_shift_coverage else []
 
     @model_validator(mode="after")
     def check_references(self) -> Problem:
@@ -227,21 +234,24 @@ class Problem(Record):
         required, optional = {
             "min_skill_coverage": ({"date", "shift_id", "skill_id", "value"}, set()),
             "min_coverage": ({"date", "shift_id", "value"}, set()),
+            "min_time_coverage": ({"date", "start_time", "end_time", "value"}, {"skill_id"}),
             "unavailable": ({"date", "employee_id"}, {"shift_id"}),
             "fixed": ({"date", "employee_id", "shift_id"}, set()),
             "max_consecutive": ({"value"}, {"employee_id"}),
             "max_work_minutes": ({"employee_id", "value"}, set()),
         }[rule.type]
-        if rule.type in {"min_coverage", "min_skill_coverage"}:
+        if rule.type in {"min_coverage", "min_skill_coverage", "min_time_coverage"}:
             if rule.all_dates:
                 required = required - {"date"} | {"all_dates"}
-            if rule.all_shifts:
+            if rule.all_shifts and rule.type != "min_time_coverage":
                 required = required - {"shift_id"} | {"all_shifts"}
         fields = rule.model_dump(exclude={"id", "type"}, exclude_defaults=True).keys()
         if not required <= fields <= required | optional:
             raise ValueError(f"missing or unexpected fields in rule {rule.id}")
         if rule.date is not None and not self.in_period(rule.date):
             raise ValueError(f"date outside the period in rule {rule.id}")
+        if rule.type == "min_time_coverage" and rule.start_time == rule.end_time != "00:00":
+            raise ValueError(f"start and end times must differ in rule {rule.id}")
         if rule.employee_id is not None and rule.employee_id not in employees:
             raise ValueError(f"unknown employee in rule {rule.id}")
         if rule.shift_id is not None and rule.shift_id not in shifts:
@@ -249,7 +259,7 @@ class Problem(Record):
                 raise ValueError(f"unknown shift in rule {rule.id}")
         if rule.skill_id is not None and rule.skill_id not in skills:
             raise ValueError(f"unknown skill in rule {rule.id}")
-        if rule.type in {"min_coverage", "min_skill_coverage"} and not 1 <= rule.value <= 100:
+        if rule.type in {"min_coverage", "min_skill_coverage", "min_time_coverage"} and not 1 <= rule.value <= 100:
             raise ValueError(f"staffing rule must use a value from 1 to 100: {rule.id}")
         if rule.type == "max_consecutive" and not 1 <= rule.value <= 31:
             raise ValueError(f"consecutive limit must be from 1 to 31: {rule.id}")
@@ -277,6 +287,8 @@ class Issue(Record):
     date: CalendarDate | None = None
     shift_id: ID | None = None
     rule_id: ID | None = None
+    start_time: str | None = None
+    end_time: str | None = None
 
 
 class EmployeeMetrics(Record):
@@ -293,6 +305,8 @@ class Metrics(Record):
     weighted_preference_violations: int
     covered_slots: int
     total_slots: int
+    covered_time_segments: int = 0
+    total_time_segments: int = 0
     changed_cells: int | None
     employees: list[EmployeeMetrics]
 

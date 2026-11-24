@@ -89,8 +89,8 @@ def finite_bound(stats: pulp.LpSolveStats) -> float | None:
 
 def diagnose_staffing(problem: Problem, deadline: float) -> list[Issue]:
     if deadline - monotonic() <= 0.2 or not (
-        any(row.minimum for row in problem.coverage)
-        or any(rule.type in {"min_coverage", "min_skill_coverage"} for rule in problem.rules)
+        any(row.minimum for row in problem.shift_staffing)
+        or any(rule.type in {"min_coverage", "min_skill_coverage", "min_time_coverage"} for rule in problem.rules)
     ):
         return []
     roster = RosterModel(problem)
@@ -109,7 +109,9 @@ def diagnose_staffing(problem: Problem, deadline: float) -> list[Issue]:
         if shortage > 0:
             staff = f"資格 {row.skill_id} の職員" if row.skill_id else "職員"
             result.append(Issue(
-                code="staffing_review", date=row.date, shift_id=row.shift_id, rule_id=row.rule_id,
+                code="staffing_review", **row.scope,
                 message=f"見直し候補の1つです。休息・固定・人員上限を保った診断では{staff}が{shortage}人不足しました",
             ))
+            if len(result) == 3100:
+                break
     return result
