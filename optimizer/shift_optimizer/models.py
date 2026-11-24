@@ -99,6 +99,8 @@ class Rule(Record):
     date: CalendarDate | None = None
     employee_id: ID | None = None
     shift_id: ID | None = None
+    all_dates: bool = Field(default=False, strict=True)
+    all_shifts: bool = Field(default=False, strict=True)
     skill_id: ID | None = None
     value: int | None = Field(default=None, strict=True, ge=0, le=44_640)
 
@@ -190,6 +192,15 @@ class Problem(Record):
     def in_period(self, value: Date) -> bool:
         return self.start_date <= value <= self.end_date
 
+    def coverage_rule_slots(self) -> Iterator[tuple[Rule, Date, str]]:
+        days = tuple(self.start_date + timedelta(days=i) for i in range(self.days))
+        shifts = tuple(shift.id for shift in self.shifts)
+        for rule in self.rules:
+            if rule.type in {"min_coverage", "min_skill_coverage"}:
+                for day in days if rule.all_dates else (rule.date,):
+                    for shift in shifts if rule.all_shifts else (rule.shift_id,):
+                        yield rule, day, shift
+
     def check_rule(self, rule: Rule, employees: set[str], shifts: set[str], skills: set[str]) -> None:
         required, optional = {
             "min_skill_coverage": ({"date", "shift_id", "skill_id", "value"}, set()),
@@ -199,7 +210,12 @@ class Problem(Record):
             "max_consecutive": ({"value"}, {"employee_id"}),
             "max_work_minutes": ({"employee_id", "value"}, set()),
         }[rule.type]
-        fields = rule.model_dump(exclude={"id", "type"}, exclude_none=True).keys()
+        if rule.type in {"min_coverage", "min_skill_coverage"}:
+            if rule.all_dates:
+                required = required - {"date"} | {"all_dates"}
+            if rule.all_shifts:
+                required = required - {"shift_id"} | {"all_shifts"}
+        fields = rule.model_dump(exclude={"id", "type"}, exclude_defaults=True).keys()
         if not required <= fields <= required | optional:
             raise ValueError(f"missing or unexpected fields in rule {rule.id}")
         if rule.date is not None and not self.in_period(rule.date):

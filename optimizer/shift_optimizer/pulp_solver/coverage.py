@@ -34,7 +34,6 @@ def add_coverage(roster: RosterModel, *, relax_minimums: bool = False) -> list[S
         if row.minimum:
             lower_bound(row.date, row.shift_id, row.minimum)
         roster.add("staffing_max", pulp.lpSum(roster.slots[row.date, row.shift_id].values()) <= row.maximum)
-    for rule in roster.problem.rules:
-        if rule.type in {"min_coverage", "min_skill_coverage"}:
-            lower_bound(rule.date, rule.shift_id, rule.value, rule.skill_id, rule.id)
+    for rule, day, shift in roster.problem.coverage_rule_slots():
+        lower_bound(day, shift, rule.value, rule.skill_id, rule.id)
     return shortages

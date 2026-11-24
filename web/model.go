@@ -53,6 +53,8 @@ type Rule struct {
 	Date       string `json:"date,omitempty"`
 	EmployeeID string `json:"employee_id,omitempty"`
 	ShiftID    string `json:"shift_id,omitempty"`
+	AllDates   bool   `json:"all_dates,omitempty"`
+	AllShifts  bool   `json:"all_shifts,omitempty"`
 	SkillID    string `json:"skill_id,omitempty"`
 	Value      *int   `json:"value,omitempty"`
 }
@@ -101,9 +103,13 @@ func (p Problem) checkRule(rule Rule) error {
 	var date, employee, shift, skill bool
 	var min, max int
 	valueLabel := "数値"
+	coverage := rule.Type == "min_skill_coverage" || rule.Type == "min_coverage"
+	if !coverage && (rule.AllDates || rule.AllShifts) {
+		return inputError("全日・全勤務枠の指定は配置人数の条件で使えます")
+	}
 	switch rule.Type {
 	case "min_skill_coverage", "min_coverage":
-		date, shift, skill, min, max = true, true, rule.Type == "min_skill_coverage", 1, 100
+		date, shift, skill, min, max = !rule.AllDates, !rule.AllShifts, rule.Type == "min_skill_coverage", 1, 100
 		valueLabel = "最低人数"
 	case "fixed":
 		date, employee, shift = true, true, true
@@ -139,9 +145,6 @@ func (p Problem) checkRule(rule Rule) error {
 		}
 	}
 	if len(missing) > 0 {
-		if shift && rule.ShiftID == "" && rule.Type != "fixed" {
-			return inputError(strings.Join(missing, "と") + "を指定してください。全勤務枠に適用する場合は、勤務枠ごとに条件を追加してください")
-		}
 		return inputError(strings.Join(missing, "と") + "を指定してください")
 	}
 	if len(unexpected) > 0 {

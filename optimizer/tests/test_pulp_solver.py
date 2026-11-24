@@ -108,6 +108,23 @@ class ConstraintTest(unittest.TestCase):
 
 
 class SchedulingTest(unittest.TestCase):
+    def test_coverage_all_shifts_targets_only_selected_day(self):
+        p = problem(employees=[employee("first", skills=["leader"]), employee("second", skills=["leader"])],
+                    rules=[Rule(id="daily-lead", type="min_skill_coverage", date=START,
+                                all_shifts=True, skill_id="leader", value=1)])
+        result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(result.status, "optimal", result)
+        self.assertEqual({row.shift_id for row in result.assignments if row.date == START}, {"day", "night"})
+        issues = [x for x in validate(p, []).issues if x.rule_id == "daily-lead"]
+        self.assertEqual({(x.date, x.shift_id) for x in issues}, {(START, "day"), (START, "night")})
+
+    def test_coverage_all_dates_applies_to_each_day_in_period(self):
+        p = problem(rules=[Rule(id="period-lead", type="min_coverage", all_dates=True,
+                                all_shifts=True, value=1)], days=31)
+        slots = list(p.coverage_rule_slots())
+        self.assertEqual(len(slots), 62)
+        self.assertEqual((slots[-1][1], slots[-1][2]), (START + 30 * DAY, "night"))
+
     def test_fairness_selects_the_employee_with_work_target(self):
         p = self.choice_problem()
         result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)

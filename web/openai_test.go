@@ -82,8 +82,7 @@ func TestCoverageProposalWithNoShiftExplainsHowToSpecifyIt(t *testing.T) {
 	rule := Rule{Type: "min_skill_coverage", Date: "2026-12-12", SkillID: "leader", Value: &minimum}
 	checked, err := checkedProposal(p, "12月12日にリーダーを常に2人", Proposal{Status: "proposal", Rule: &rule})
 	if err != nil || checked.Status != "clarify" || checked.Rule != nil ||
-		!strings.Contains(checked.Question, "勤務枠を指定してください") ||
-		!strings.Contains(checked.Question, "勤務枠ごとに条件を追加してください") {
+		checked.Question != "勤務枠を指定してください。" {
 		t.Fatalf("missing shift did not produce a specific clarification: %+v, %v", checked, err)
 	}
 	if strings.Contains(checked.Question, "入力を確認してください") {

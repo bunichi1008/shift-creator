@@ -372,6 +372,16 @@
           "default": null,
           "title": "Shift Id"
         },
+        "all_dates": {
+          "default": false,
+          "title": "All Dates",
+          "type": "boolean"
+        },
+        "all_shifts": {
+          "default": false,
+          "title": "All Shifts",
+          "type": "boolean"
+        },
         "skill_id": {
           "anyOf": [
             {

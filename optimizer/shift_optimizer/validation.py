@@ -67,6 +67,14 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
         if assigned.get(lock.cell, "off") != lock.shift_id:
             cell_issue("locked_assignment", "固定した勤務または休みと一致していません", lock)
 
+    for rule, day, shift in problem.coverage_rule_slots():
+        listed = by_slot[day, shift]
+        count = sum(rule.skill_id is None or rule.skill_id in employees[key].skills for key in listed)
+        if count < rule.value:
+            label = f"資格 {rule.skill_id} の職員" if rule.skill_id else "職員"
+            issue(rule.type, f"{label}が{rule.value - count}人不足しています（{count}/{rule.value}）",
+                  date=day, shift_id=shift, rule_id=rule.id)
+
     employee_metrics = []
     limits_by_employee = defaultdict(list)
     for rule in problem.rules:
@@ -75,16 +83,8 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
             for employee_id in targets:
                 limits_by_employee[employee_id].append(rule)
             continue
-        attrs = dict(date=rule.date, employee_id=rule.employee_id, shift_id=rule.shift_id, rule_id=rule.id)
-        if rule.type in {"min_skill_coverage", "min_coverage"}:
-            listed = by_slot[rule.date, rule.shift_id]
-            count = len(listed)
-            if rule.skill_id:
-                count = sum(rule.skill_id in employees[key].skills for key in listed)
-            if count < rule.value:
-                label = f"資格 {rule.skill_id} の職員" if rule.skill_id else "職員"
-                issue(rule.type, f"{label}が{rule.value - count}人不足しています（{count}/{rule.value}）", **attrs)
-        else:
+        if rule.type in {"fixed", "unavailable"}:
+            attrs = dict(date=rule.date, employee_id=rule.employee_id, shift_id=rule.shift_id, rule_id=rule.id)
             item = assigned.get((rule.employee_id, rule.date), "off")
             if rule.type == "fixed" and item != rule.shift_id:
                 issue(rule.type, "固定した勤務または休みと一致していません", **attrs)
@@ -151,8 +151,8 @@ def staffing_diagnostics(problem: Problem) -> list[Issue]:
             fixed_by_employee[employee_id].append(Assignment(employee_id=employee_id, date=day, shift_id=shift_id))
 
     requirements = [(r.date, r.shift_id, r.minimum, None, None) for r in problem.coverage if r.minimum]
-    requirements.extend((r.date, r.shift_id, r.value, r.skill_id, r.id) for r in problem.rules
-                        if r.type in {"min_coverage", "min_skill_coverage"})
+    requirements.extend((day, shift, rule.value, rule.skill_id, rule.id)
+                        for rule, day, shift in problem.coverage_rule_slots())
     result = []
     for day, shift_id, minimum, skill, rule_id in requirements:
         exclusions = Counter()
