@@ -84,13 +84,14 @@ function shiftEditor(shift, { open = false, isNew = false } = {}) {
   const details = el("details", undefined, "shift-editor");
   details.open = open;
   const summary = el("summary");
-  const name = settingsInput("勤務種別の名前", shift.name, { type: "text" });
+  const nameLabel = "勤務種別名";
+  const name = settingsInput(nameLabel, shift.name, { type: "text" });
   name.maxLength = 80;
   const start = settingsInput("勤務開始", shift.start, { type: "time" });
   const end = settingsInput("勤務終了", shift.end, { type: "time" });
   const paid = settingsInput("実働（分）", shift.paid_minutes, { min: 1, max: minutesPerDay });
   const grid = el("div", undefined, "form-grid");
-  grid.append(inputWithLabel("名前", name), inputWithLabel("実働（分）", paid),
+  grid.append(inputWithLabel(nameLabel, name), inputWithLabel("実働（分）", paid),
     inputWithLabel("勤務開始", start), inputWithLabel("勤務終了", end));
 
   const breakList = el("div", undefined, "shift-break-list");
