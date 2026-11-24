@@ -5,6 +5,7 @@ const state = {
   plan: null, jobs: [], active: null, liveReport: null, poll: 0,
   ruleRevision: 0, ruleID: null, cell: null, submitKey: null,
   proposalRules: [],
+  scheduledBreaks: new Map(),
 };
 
 const ruleTypes = {
@@ -152,7 +153,7 @@ function render() {
 }
 
 function assignmentMap(rows) {
-  return new Map(rows.map((row) => [row.employee_id + "/" + row.date, row.shift_id]));
+  return new Map(rows.map((row) => [row.employee_id + "/" + row.date, row]));
 }
 
 function renderSchedule(days, assignments, preview) {
@@ -160,6 +161,7 @@ function renderSchedule(days, assignments, preview) {
   const selected = assignmentMap(assignments);
   const original = assignmentMap(p.baseline);
   const locks = assignmentMap(p.locks);
+  const shifts = new Map(p.shifts.map((shift) => [shift.id, shift]));
   const colors = new Map(p.shifts.map((shift, index) => [shift.id, index % 4]));
   const area = $("schedule");
   const { scrollTop, scrollLeft } = area;
@@ -184,20 +186,23 @@ function renderSchedule(days, assignments, preview) {
     row.append(heading);
     for (const day of days) {
       const key = employee.id + "/" + day.date;
-      const shift = selected.get(key) || "off";
+      const assignment = selected.get(key);
+      const shift = assignment?.shift_id || "off";
       const locked = locks.has(key);
-      const changed = preview && p.baseline.length > 0 && shift !== (original.get(key) || "off");
+      const changed = preview && p.baseline.length > 0 && shift !== (original.get(key)?.shift_id || "off");
       const pill = el(preview ? "span" : "button", shift === "off" ? "休" : shiftName(shift).slice(0, 2), "shift");
       pill.dataset.tone = colors.get(shift) ?? "";
       if (locked) pill.classList.add("locked");
       if (changed) pill.classList.add("changed");
-      const text = [employee.name, day.date, shiftName(shift), locked ? "固定" : "", changed ? "変更あり" : ""]
+      const breaks = assignment && assignedBreaks(shifts.get(shift), assignment.break_starts);
+      const breakText = breaks?.length ? "休憩 " + breaks.map(({ text }) => text).join("、") : "";
+      const text = [employee.name, day.date, shiftName(shift), breakText, locked ? "固定" : "", changed ? "変更あり" : ""]
         .filter(Boolean).join("、");
       pill.setAttribute("aria-label", text);
       pill.title = text;
       if (!preview) {
         pill.type = "button";
-        pill.addEventListener("click", () => openCell(employee, day.date, shift, locked));
+        pill.addEventListener("click", () => openCell(employee, day.date, shift, locked, assignment?.break_starts));
       }
       row.insertCell().append(pill);
     }
@@ -208,18 +213,57 @@ function renderSchedule(days, assignments, preview) {
   const legend = p.shifts.map((shift) => {
     const chip = el("span", shift.name, "shift");
     chip.dataset.tone = colors.get(shift.id);
-    const breaks = (shift.breaks || []).map(({ start, end }) => describeTimeWindow(start, end));
+    const breaks = (shift.breaks || []).map(({ start, end, latest_start: latest }) => latest
+      ? describeTimeWindow(start, latest) + "の間に開始・" + clockSpan(start, end) + "分"
+      : describeTimeWindow(start, end));
     chip.title = [describeTimeWindow(shift.start, shift.end), "実働 " + shift.paid_minutes + " 分",
       breaks.length ? "休憩 " + breaks.join("、") : ""].filter(Boolean).join(" ／ ");
     return chip;
   });
   $("legend").replaceChildren(...legend, el("span", "休み", "shift"), el("span", "固定", "shift locked"));
+  renderBreakPlan(assignments, shifts);
 }
 
 function describeTimeWindow(start, end) {
   if (start === "00:00" && end === "00:00") return "終日";
   if (end === "00:00") return start + "〜24:00";
   return start + "〜" + (end < start ? "翌" : "") + end;
+}
+
+function assignedBreaks(shift, starts = []) {
+  let flexIndex = 0;
+  return (shift?.breaks || []).flatMap((rule) => {
+    const start = rule.latest_start ? (starts || [])[flexIndex++] : rule.start;
+    if (!start) return [];
+    const end = rule.latest_start ? clockAfter(start, clockSpan(rule.start, rule.end)) : rule.end;
+    return [{
+      minute: timeInMinutes(shift.start) + clockSpan(shift.start, start),
+      text: (start < shift.start ? "翌" : "") + describeTimeWindow(start, end),
+    }];
+  });
+}
+
+function renderBreakPlan(assignments, shifts) {
+  const dates = new Map();
+  for (const row of assignments) {
+    const breaks = assignedBreaks(shifts.get(row.shift_id), row.break_starts);
+    if (!breaks.length) continue;
+    if (!dates.has(row.date)) dates.set(row.date, []);
+    dates.get(row.date).push(...breaks.map(({ minute, text }) => ({
+      minute, text: text + " ／ " + personName(row.employee_id) + "（" + shiftName(row.shift_id) + "）",
+    })));
+  }
+  state.scheduledBreaks = dates;
+  $("break-plan").hidden = !dates.size;
+  const select = $("break-plan-date");
+  selectOptions(select, [...dates.keys()].sort().map((date) => [date, formatDate(date)]), select.value);
+  renderBreakPlanRows();
+}
+
+function renderBreakPlanRows() {
+  const rows = state.scheduledBreaks.get($("break-plan-date").value) || [];
+  $("break-plan-rows").replaceChildren(...rows.toSorted((a, b) => a.minute - b.minute)
+    .map(({ text }) => el("li", text)));
 }
 
 function describeRule(rule) {
@@ -396,14 +440,28 @@ function selectOptions(control, entries, initial) {
   if (control.selectedIndex < 0) control.selectedIndex = 0;
 }
 
-function openCell(employee, date, shift, locked) {
-  state.cell = { revision: state.plan.revision, employee_id: employee.id, date };
+function openCell(employee, date, shift, locked, breakStarts) {
+  state.cell = { revision: state.plan.revision, employee_id: employee.id, date, shift, breakStarts };
   const form = $("cell-form");
   $("cell-label").textContent = employee.name + " ／ " + formatDate(date);
   selectOptions($("cell-shift"), [["off", "休み"], ...state.plan.problem.shifts.map((s) => [s.id, s.name])], shift);
   form.elements.lock.checked = locked;
+  showCellBreaks();
   dialogError(form, "");
   $("cell-dialog").showModal();
+}
+
+function showCellBreaks() {
+  const id = $("cell-shift").value;
+  const shift = state.plan.problem.shifts.find((item) => item.id === id);
+  const starts = state.cell.shift === id ? state.cell.breakStarts : undefined;
+  const actual = assignedBreaks(shift, starts);
+  const pending = (shift?.breaks || []).some((item) => item.latest_start) && !starts?.length;
+  const lines = actual.map(({ text }) => text);
+  if (pending) lines.push("調整する休憩はシフト生成時に確定します。");
+  const note = $("cell-breaks");
+  note.hidden = !lines.length;
+  note.textContent = lines.length ? "休憩 ／ " + lines.join("、") : "";
 }
 
 function ruleFields(values = {}) {
@@ -523,13 +581,15 @@ $("adopt").addEventListener("click", (event) => runAction(event.currentTarget, a
   showNotice("message", "結果を勤務案に反映しました。");
 }));
 
+$("break-plan-date").addEventListener("change", renderBreakPlanRows);
+$("cell-shift").addEventListener("change", showCellBreaks);
 $("cell-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   runAction(event.submitter, async () => {
-    const { revision, ...cell } = state.cell;
+    const { revision, employee_id, date } = state.cell;
     const plan = await api("/api/plan/cell", { method: "PATCH", body: {
-      revision, cell: { ...cell, shift_id: form.elements.shift_id.value }, locked: form.elements.lock.checked,
+      revision, cell: { employee_id, date, shift_id: form.elements.shift_id.value }, locked: form.elements.lock.checked,
     } });
     $("cell-dialog").close();
     setPlan(plan);

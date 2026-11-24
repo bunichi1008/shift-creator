@@ -249,7 +249,7 @@ function applySettings(draft) {
   const { problem } = draft;
   problem.shifts = draft.shiftFields.map(({ shift, name, start, end, paid, breaks }) => ({
     ...shift, name: name.value.trim(), start: start.value, end: end.value, paid_minutes: paid.valueAsNumber,
-    breaks: breaks.map((item) => ({ start: item.start.value, end: item.end.value })),
+    breaks: breaks.map(shiftBreakValue),
   }));
   for (const { employee, target, max, nights } of draft.staff) {
     Object.assign(employee, {

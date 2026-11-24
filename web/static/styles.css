@@ -130,6 +130,12 @@ textarea { resize: vertical; }
 .shift-editor[open] summary { margin-bottom: 10px; }
 .shift-break-list:not(:empty) { display: grid; gap: 8px; margin-top: 10px; }
 .shift-break-row { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 8px; }
+.shift-break-mode { grid-column: 1 / -1; }
+.shift-break-mode ~ button { justify-self: start; }
+.break-plan { margin: 0; padding: 0 15px 12px; }
+.break-plan label { display: grid; max-width: 220px; gap: 4px; margin-top: 7px; }
+.break-plan ul { margin: 8px 0 0; padding: 0; max-height: 205px; overflow: auto; list-style: none; }
+.break-plan li { padding: 4px 0; border-bottom: 1px solid var(--stroke); }
 .shift-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .shift-remove-confirm { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
 .shift-remove-confirm p { flex-basis: 100%; }

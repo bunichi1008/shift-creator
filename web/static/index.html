@@ -47,6 +47,11 @@
       </header>
       <div class="scroll-grid" id="schedule" tabindex="0" aria-label="勤務表のスクロール領域"></div>
       <div class="legend" id="legend"></div>
+      <details id="break-plan" class="break-plan" hidden>
+        <summary>日別の休憩予定</summary>
+        <label>勤務開始日<select id="break-plan-date"></select></label>
+        <ul id="break-plan-rows"></ul>
+      </details>
     </section>
 
     <aside class="cards">
@@ -90,6 +95,7 @@
     <h2>勤務を編集</h2>
     <p class="meta" id="cell-label"></p>
     <label>勤務種別<select name="shift_id" id="cell-shift"></select></label>
+    <p class="meta" id="cell-breaks" hidden></p>
     <label class="check"><input type="checkbox" name="lock">このセルを固定する</label>
     <div class="dialog-actions">
       <button type="button" data-close>キャンセル</button>
