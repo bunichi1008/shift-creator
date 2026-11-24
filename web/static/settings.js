@@ -73,7 +73,7 @@ function selectCoverageEditor(id) {
   $("coverage-bulk-max").setCustomValidity("");
 }
 
-function openSettings() {
+function openSettings(panel) {
   const problem = structuredClone(state.plan.problem);
   preserveHistoricalShifts(problem);
   const shiftFields = problem.shifts.map((shift, index) => shiftEditor(shift, { open: index === 0 }));
@@ -122,7 +122,7 @@ function openSettings() {
   $("settings-objective-order").replaceChildren(...priorities.map(({ label }) => label));
   settingsDraft = { revision: state.plan.revision, problem, shiftFields, coverage, staff, preferences, order };
   refreshSettingsShiftOptions(problem.shifts[0].id, problem.limits.night_shift_id || "");
-  showSettingsPanel("shifts");
+  showSettingsPanel(panel);
   dialogError(settingsForm, "");
   $("settings-dialog").showModal();
 }
@@ -269,7 +269,9 @@ function applySettings(draft) {
   problem.optimization = { order: draft.order, night_deviation_weight: fields.night_deviation_weight.valueAsNumber };
 }
 
-$("open-settings").addEventListener("click", openSettings);
+for (const button of document.querySelectorAll("[data-open-settings]")) {
+  button.addEventListener("click", () => openSettings(button.dataset.openSettings));
+}
 $("settings-add-shift").addEventListener("click", addSettingsShift);
 for (const button of settingsForm.querySelectorAll("[data-settings-tab]")) {
   button.addEventListener("click", () => showSettingsPanel(button.dataset.settingsTab));

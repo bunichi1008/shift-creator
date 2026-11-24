@@ -6,6 +6,7 @@ const state = {
   ruleRevision: 0, ruleID: null, cell: null, submitKey: null,
   proposalRules: [],
   scheduledBreaks: new Map(),
+  manualGrid: false, starting: false,
 };
 
 const ruleTypes = {
@@ -115,7 +116,13 @@ function personName(id) {
 
 function setPlan(plan) {
   if (state.plan && state.plan.revision > plan.revision) return;
-  if (state.plan?.revision !== plan.revision) state.liveReport = null;
+  if (state.plan?.revision !== plan.revision) {
+    state.liveReport = null;
+    if (state.active && state.active.plan_revision !== plan.revision) {
+      state.active = null;
+      state.poll++;
+    }
+  }
   state.plan = plan;
   render();
 }
@@ -123,6 +130,7 @@ function setPlan(plan) {
 async function refreshPlan() {
   const data = await api("/api/plan");
   const form = $("ai-form");
+  $("ai-card").hidden = !data.has_llm;
   form.querySelectorAll("textarea, button").forEach((input) => { input.disabled = !data.has_llm; });
   $("ai-help").textContent = data.has_llm
     ? "時間帯や複数の条件をまとめて入力できます。"
@@ -137,16 +145,29 @@ function render() {
     : formatDate(days[0].date) + " 〜 " + formatDate(days.at(-1).date);
   $("period").textContent = label;
   $("plan-meta").textContent = p.employees.length + "名 ／ " + p.shifts.length + "勤務種別 ／ 版 " + state.plan.revision;
+  $("sample-label").hidden = !state.plan.sample_roster;
   const job = state.active;
   const preview = job?.plan_revision === state.plan.revision && Boolean(job.result?.report);
-  $("close-preview").hidden = !job;
+  const grid = preview || state.manualGrid || p.baseline.length > 0 || p.locks.length > 0;
+  const running = inProgress(job) && job.plan_revision === state.plan.revision;
+  $("close-preview").hidden = !job || running;
   $("adopt").hidden = !preview || !["optimal", "feasible", "demo_valid"].includes(job?.result?.status)
     || job.result.report.issues.length > 0;
+  $("validate").hidden = !p.baseline.length || Boolean(job);
+  $("export-roster").hidden = !p.baseline.length;
   $("table-title").textContent = preview ? "生成結果のプレビュー" : "勤務案";
+  $("schedule-mode").hidden = !grid;
   $("schedule-mode").textContent = preview
     ? (p.baseline.length ? "青い枠は、現在の勤務案から変わったセルです。" : "採用すると、この勤務表を編集できます。")
     : "セルを選ぶと、勤務の変更・固定ができます。";
-  renderSchedule(days, preview ? job.result.assignments : p.baseline, preview);
+  $("schedule-empty").hidden = grid;
+  $("schedule").hidden = $("legend").hidden = !grid;
+  $("schedule-empty-help").textContent = running
+    ? "勤務案を計算しています。結果が出たらこの画面で確認できます。"
+    : "「シフト生成」で入力済みの職員と条件から勤務案を作れます。結果を確認し、必要に応じて採用できます。";
+  $("start-manual").hidden = running;
+  if (grid) renderSchedule(days, preview ? job.result.assignments : p.baseline, preview);
+  else $("break-plan").hidden = true;
   renderRules();
   renderJobs();
   renderReport();
@@ -190,13 +211,15 @@ function renderSchedule(days, assignments, preview) {
       const shift = assignment?.shift_id || "off";
       const locked = locks.has(key);
       const changed = preview && p.baseline.length > 0 && shift !== (original.get(key)?.shift_id || "off");
-      const pill = el(preview ? "span" : "button", shift === "off" ? "休" : shiftName(shift).slice(0, 2), "shift");
+      const unassigned = shift === "off" && !preview && !locked;
+      const pill = el(preview ? "span" : "button", unassigned ? "—" : shift === "off" ? "休" : shiftName(shift).slice(0, 2), "shift");
       pill.dataset.tone = colors.get(shift) ?? "";
       if (locked) pill.classList.add("locked");
       if (changed) pill.classList.add("changed");
       const breaks = assignment && assignedBreaks(shifts.get(shift), assignment.break_starts);
       const breakText = breaks?.length ? "休憩 " + breaks.map(({ text }) => text).join("、") : "";
-      const text = [employee.name, day.date, shiftName(shift), breakText, locked ? "固定" : "", changed ? "変更あり" : ""]
+      const text = [employee.name, day.date, unassigned ? "勤務なし" : shiftName(shift), breakText,
+        locked ? "固定" : "", changed ? "変更あり" : ""]
         .filter(Boolean).join("、");
       pill.setAttribute("aria-label", text);
       pill.title = text;
@@ -220,7 +243,7 @@ function renderSchedule(days, assignments, preview) {
       breaks.length ? "休憩 " + breaks.join("、") : ""].filter(Boolean).join(" ／ ");
     return chip;
   });
-  $("legend").replaceChildren(...legend, el("span", "休み", "shift"), el("span", "固定", "shift locked"));
+  $("legend").replaceChildren(...legend, el("span", preview ? "休み" : "— 勤務なし", "shift"), el("span", "固定", "shift locked"));
   renderBreakPlan(assignments, shifts);
 }
 
@@ -312,10 +335,25 @@ function renderRules() {
 
 async function refreshJobs() {
   state.jobs = await api("/api/jobs");
-  renderJobs();
+  const pending = state.jobs.find((job) => job.plan_revision === state.plan.revision && inProgress(job));
+  if (!state.active && pending) watchJob(pending);
+  else renderJobs();
+}
+
+function inProgress(job) {
+  return job?.state === "queued" || job?.state === "running";
+}
+
+function lastResult() {
+  return state.jobs.find((job) => job.plan_revision === state.plan.revision && job.state === "completed");
 }
 
 function renderJobs() {
+  const pending = state.jobs.some((job) => job.plan_revision === state.plan.revision && inProgress(job));
+  const generate = $("generate");
+  generate.disabled = state.starting || pending;
+  generate.textContent = pending ? "シフト生成中…" : state.plan.problem.baseline.length ? "シフトを再生成" : "シフト生成";
+  $("last-result").hidden = Boolean(state.active) || !lastResult();
   const list = $("job-list");
   list.replaceChildren();
   for (const job of state.jobs) {
@@ -327,7 +365,10 @@ function renderJobs() {
       timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
     }).format(new Date(job.created_at));
     button.append(el("span", labelFor(job)), el("span", timestamp + " ／ 版 " + job.plan_revision, "meta"));
-    button.addEventListener("click", () => watchJob(job));
+    button.addEventListener("click", () => {
+      watchJob(job);
+      $("result-title").focus();
+    });
     row.append(button);
     list.append(row);
   }
@@ -339,6 +380,8 @@ function renderReport() {
   const report = job ? job.result?.report : state.liveReport;
   const diagnostics = job?.result?.diagnostics || [];
   $("report-card").hidden = !job && !report;
+  $("report-card").classList.toggle("result-problem", diagnostics.length > 0
+    || Boolean(report?.issues.length) || ["failed", "completed"].includes(job?.state) && !report);
   $("metrics").hidden = !report;
   const stats = $("metrics");
   stats.replaceChildren();
@@ -369,11 +412,22 @@ function renderReport() {
   $("result-message").textContent = [job?.result?.message || job?.error ||
     (job?.state === "queued" ? "最適化サービスの実行を待っています。" : ""), execution, stale].filter(Boolean).join(" ");
   const issueRows = [...diagnostics, ...(report?.issues || [])];
+  const editableRules = new Map((state.plan.problem.rules || []).map((rule) => [rule.id, rule]));
+  const ruleLinks = new Set();
   $("issues").replaceChildren(...issueRows.map((issue) => {
     const scope = [issue.date, issue.start_time && describeTimeWindow(issue.start_time, issue.end_time),
       issue.employee_id && personName(issue.employee_id), issue.shift_id && shiftName(issue.shift_id)]
       .filter(Boolean).join("・");
-    return el("li", [scope, issue.message].filter(Boolean).join(" ／ "));
+    const row = el("li", [scope, issue.message].filter(Boolean).join(" ／ "));
+    const rule = editableRules.get(issue.rule_id);
+    if (!stale && rule && !ruleLinks.has(rule.id)) {
+      ruleLinks.add(rule.id);
+      const edit = el("button", "該当条件を編集", "rule-action");
+      edit.type = "button";
+      edit.addEventListener("click", () => openRule(rule, "", rule.id));
+      row.append(edit);
+    }
+    return row;
   }));
   $("employee-metrics").hidden = !report?.metrics.employees.length;
   $("employee-metrics-table").replaceChildren();
@@ -421,8 +475,6 @@ async function pollJob(id, generation) {
     render();
     if (!["completed", "failed"].includes(job.state)) {
       setTimeout(() => pollJob(id, generation), 1500);
-    } else {
-      showNotice("message", labelFor(job), job.state === "failed" || job.result?.status === "error");
     }
   } catch (error) {
     if (generation !== state.poll) return;
@@ -554,17 +606,37 @@ $("validate").addEventListener("click", (event) => runAction(event.currentTarget
   showNotice("message", checked.report.issues.length ? "必須条件に違反している箇所を確認できます。" : "必須条件を満たしています。");
 }));
 
-$("generate").addEventListener("click", (event) => runAction(event.currentTarget, async () => {
-  if (!state.submitKey || state.submitKey.revision !== state.plan.revision) {
-    state.submitKey = { revision: state.plan.revision, id: crypto.randomUUID() };
+$("generate").addEventListener("click", () => {
+  state.starting = true;
+  renderJobs();
+  runAction(null, async () => {
+    if (!state.submitKey || state.submitKey.revision !== state.plan.revision) {
+      state.submitKey = { revision: state.plan.revision, idempotency_key: crypto.randomUUID() };
+    }
+    const job = await api("/api/jobs", { method: "POST", body: {
+      revision: state.submitKey.revision, idempotency_key: state.submitKey.idempotency_key,
+    } });
+    state.submitKey = null;
+    watchJob(job);
+  }).finally(() => {
+    state.starting = false;
+    renderJobs();
+  });
+});
+
+$("start-manual").addEventListener("click", () => {
+  state.manualGrid = true;
+  render();
+  $("table-title").focus();
+});
+
+$("last-result").addEventListener("click", () => {
+  const previous = lastResult();
+  if (previous) {
+    watchJob(previous);
+    $("result-title").focus();
   }
-  const job = await api("/api/jobs", { method: "POST", body: {
-    revision: state.submitKey.revision, idempotency_key: state.submitKey.id,
-  } });
-  state.submitKey = null;
-  watchJob(job);
-  showNotice("message", "シフト生成を受け付けました。");
-}));
+});
 
 $("close-preview").addEventListener("click", () => {
   state.poll++;
@@ -654,6 +726,7 @@ $("ai-form").addEventListener("submit", (event) => {
 $("open-import").addEventListener("click", () => {
   $("import-form").reset();
   dialogError($("import-form"), "");
+  $("reset-confirm").hidden = true;
   importHelp();
   $("import-dialog").showModal();
 });
@@ -680,6 +753,7 @@ $("import-form").addEventListener("submit", (event) => {
       plan = await api("/api/plan/import", { method: "POST", body: { revision, kind, csv: text } });
     }
     $("import-dialog").close();
+    state.manualGrid = false;
     setPlan(plan);
     showNotice("message", "データを取り込みました。");
   }, form);
@@ -695,11 +769,19 @@ $("export-settings").addEventListener("click", () => {
   setTimeout(() => URL.revokeObjectURL(href), 1000);
 });
 
-$("reset").addEventListener("click", (event) => {
-  if (!window.confirm("現在の入力と勤務案をサンプルで置き換えますか？")) return;
+$("reset").addEventListener("click", () => {
+  $("reset-confirm").hidden = false;
+  $("cancel-reset").focus();
+});
+$("cancel-reset").addEventListener("click", () => {
+  $("reset-confirm").hidden = true;
+  $("reset").focus();
+});
+$("confirm-reset").addEventListener("click", (event) => {
   runAction(event.currentTarget, async () => {
     const plan = await api("/api/plan/reset", { method: "POST", body: { revision: state.plan.revision } });
     $("import-dialog").close();
+    state.manualGrid = false;
     setPlan(plan);
     showNotice("message", "サンプルデータに戻しました。");
   }, $("import-form"));
@@ -709,9 +791,11 @@ document.querySelectorAll("[data-close]").forEach((button) => {
   button.addEventListener("click", () => button.closest("dialog").close());
 });
 
-const initializationButtons = ["validate", "generate", "open-rule", "open-import", "open-settings"];
-initializationButtons.forEach((id) => { $(id).disabled = true; });
+const initializationButtons = ["validate", "open-rule", "open-import"].map($)
+  .concat([...document.querySelectorAll("[data-open-settings]")]);
+$("generate").disabled = true;
+initializationButtons.forEach((button) => { button.disabled = true; });
 refreshPlan().then(() => {
-  initializationButtons.forEach((id) => { $(id).disabled = false; });
+  initializationButtons.forEach((button) => { button.disabled = false; });
   return refreshJobs();
 }).catch((error) => showNotice("message", error.message, true));

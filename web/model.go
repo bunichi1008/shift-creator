@@ -226,9 +226,10 @@ func (p Problem) checkRuleBatch(rules []Rule) error {
 }
 
 type Plan struct {
-	Revision  int       `json:"revision"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Problem   Problem   `json:"problem"`
+	Revision     int       `json:"revision"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Problem      Problem   `json:"problem"`
+	SampleRoster bool      `json:"sample_roster,omitempty"`
 }
 
 type SolveRequest struct {

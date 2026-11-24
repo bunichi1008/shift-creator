@@ -40,7 +40,24 @@ func (s *server) updatePlan(ctx context.Context, revision int, update func(*Prob
 	}
 	plan.Revision++
 	plan.UpdatedAt = s.now().UTC()
+	plan.SampleRoster = s.isSampleRoster(plan.Problem)
 	return plan, s.store.write(ctx, plans, currentPlanID, version, plan)
+}
+
+func (s *server) isSampleRoster(p Problem) bool {
+	if len(p.Employees) == 0 || len(p.Employees) != len(s.demo.Employees) {
+		return false
+	}
+	names := make(map[string]string, len(s.demo.Employees))
+	for _, employee := range s.demo.Employees {
+		names[employee.ID] = employee.Name
+	}
+	for _, employee := range p.Employees {
+		if name, exists := names[employee.ID]; !exists || name != employee.Name {
+			return false
+		}
+	}
+	return true
 }
 
 func changeCell(p *Problem, cell Assignment, locked bool) error {

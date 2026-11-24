@@ -190,6 +190,7 @@ func (s *server) getPlan(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
+	plan.SampleRoster = s.isSampleRoster(plan.Problem)
 	jsonResponse(w, 200, struct {
 		Plan   Plan `json:"plan"`
 		HasLLM bool `json:"has_llm"`
