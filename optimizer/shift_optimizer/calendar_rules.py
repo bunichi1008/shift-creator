@@ -1,15 +1,14 @@
 from datetime import date, timedelta
 
-from .models import Limits, Shift, clock_minutes
+from .models import Limits, Shift
 
 DAY = timedelta(days=1)
 
 
 def interval(day: date, shift: Shift) -> tuple[int, int]:
-    start = clock_minutes(shift.start)
-    end = clock_minutes(shift.end)
+    start, end = shift.clock_range()
     origin = day.toordinal() * 1440
-    return origin + start, origin + end + (1440 if end < start else 0)
+    return origin + start, origin + end
 
 
 def conflict_reason(limits: Limits, first_day: date, first_shift: Shift, second_day: date, second_shift: Shift) -> str:

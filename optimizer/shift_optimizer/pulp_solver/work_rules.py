@@ -42,11 +42,15 @@ def add_rest_rules(roster: RosterModel) -> None:
                     # The later day already allows at most one assignment.
                     roster.add("rest", variable + pulp.lpSum(blocked) <= 1)
 
+    historical = problem.historical_shifts
     for row in problem.history:
+        shift = historical[row.shift_id]
         for offset in (1, 2):
-            later = roster.cells.get((row.employee_id, row.date + timedelta(days=offset)))
+            day = row.date + timedelta(days=offset)
+            later = roster.cells.get((row.employee_id, day))
             if later:
-                blocked = [later[key] for key in conflicts[row.shift_id, offset] if key in later]
+                blocked = [variable for key, variable in later.items()
+                           if conflict_reason(problem.limits, row.date, shift, day, roster.shifts[key])]
                 if blocked:
                     roster.add("history_rest", pulp.lpSum(blocked) == 0)
 

@@ -10,13 +10,18 @@ from .models import (
 from .time_staffing import time_staffing_segments
 
 
-def incompatible(problem: Problem, shifts: dict[str, Shift], first: Assignment, second: Assignment) -> str:
-    return conflict_reason(problem.limits, first.date, shifts[first.shift_id], second.date, shifts[second.shift_id])
+def incompatible(problem: Problem, shifts: dict[str, Shift], historical: dict[str, Shift],
+                 first: Assignment, second: Assignment) -> str:
+    def shift(row: Assignment) -> Shift:
+        return (shifts if problem.in_period(row.date) else historical)[row.shift_id]
+
+    return conflict_reason(problem.limits, first.date, shift(first), second.date, shift(second))
 
 
 def validate(problem: Problem, assignments: list[Assignment]) -> Report:
     employees = {e.id: e for e in problem.employees}
     shifts = {s.id: s for s in problem.shifts}
+    historical = problem.historical_shifts
     issues: list[Issue] = []
 
     def issue(code: str, message: str, **attributes) -> None:
@@ -122,7 +127,7 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
             if current_period:
                 minutes += shifts[row.shift_id].paid_minutes
                 nights += row.shift_id == problem.limits.night_shift_id
-                if prior and (reason := incompatible(problem, shifts, prior, row)):
+                if prior and (reason := incompatible(problem, shifts, historical, prior, row)):
                     cell_issue("rest", reason, row)
             run = run + 1 if prior and row.date == prior.date + DAY else 1
             if current_period and run > peak:
@@ -162,6 +167,7 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
 def staffing_diagnostics(problem: Problem) -> list[Issue]:
     """Prove simple staffing shortages using unavailable and fixed assignments."""
     shifts = {s.id: s for s in problem.shifts}
+    historical = problem.historical_shifts
     upper = {(row.date, row.shift_id): row.maximum for row in problem.shift_staffing}
     fixed = defaultdict(list)
     forbidden = problem.unavailable_slots()
@@ -189,7 +195,7 @@ def staffing_diagnostics(problem: Problem) -> list[Issue]:
                 exclusions["同日の固定勤務・休み"] += 1
             else:
                 candidate = Assignment(employee_id=employee.id, date=day, shift_id=shift_id)
-                if any(incompatible(problem, shifts, fixed_row, candidate)
+                if any(incompatible(problem, shifts, historical, fixed_row, candidate)
                        for fixed_row in fixed_by_employee[employee.id] if 0 < abs((fixed_row.date - day).days) <= 2):
                     exclusions["固定勤務との休息・夜勤翌日ルール"] += 1
                 else:

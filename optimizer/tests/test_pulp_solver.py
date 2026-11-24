@@ -3,9 +3,10 @@ from unittest.mock import patch
 from datetime import date, timedelta
 
 import pulp
+from pydantic import ValidationError
 
 from shift_optimizer.models import (
-    Assignment, Coverage, Employee, Limits, Optimization, Preference, Problem, Rule, Shift, SolveRequest,
+    Assignment, Coverage, Employee, Limits, Optimization, Preference, Problem, Rule, Shift, ShiftBreak, SolveRequest,
 )
 from shift_optimizer.pulp_solver import optimize, solve
 from shift_optimizer.pulp_solver.coverage import add_coverage
@@ -95,6 +96,51 @@ class ConstraintTest(unittest.TestCase):
         missing = validate(p, [])
         self.assertEqual([(i.date, i.start_time, i.end_time) for i in missing.issues],
                          [(START, "22:00", "24:00"), (START + DAY, "00:00", "07:00")])
+
+    def test_break_reduces_paid_time_and_needs_coverage_from_another_shift(self):
+        split = Shift(id="split", name="日勤", start="09:00", end="17:00", paid_minutes=420,
+                      breaks=[ShiftBreak(start="12:00", end="13:00")])
+        relief = Shift(id="relief", name="休憩交代", start="12:00", end="13:00", paid_minutes=60)
+        p = problem(
+            days=1, shifts=[split, relief],
+            limits=Limits(max_consecutive=5, min_rest_minutes=0, no_next_day_after_night=False),
+            rules=[Rule(id="continuous", type="min_time_coverage", date=START, value=1,
+                        start_time="09:00", end_time="17:00")],
+        )
+        result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(result.status, "optimal", result)
+        self.assertEqual({row.shift_id for row in result.assignments}, {"split", "relief"})
+        self.assertEqual(sorted(row.minutes for row in result.report.metrics.employees), [60, 420])
+        only_split = [row for row in result.assignments if row.shift_id == "split"]
+        self.assertEqual([(i.start_time, i.end_time) for i in validate(p, only_split).issues],
+                         [("12:00", "13:00")])
+
+    def test_historical_shift_retains_its_cross_midnight_break_and_rest(self):
+        old_night = Shift(id="old-night", name="旧夜勤", start="22:00", end="07:00", paid_minutes=480,
+                          breaks=[ShiftBreak(start="23:30", end="00:30")])
+        p = problem(
+            days=1, shifts=[DAY_SHIFT], history_shifts=[old_night],
+            history=[Assignment(employee_id="first", date=START-DAY, shift_id="old-night")],
+            limits=Limits(max_consecutive=5, min_rest_minutes=660, no_next_day_after_night=False),
+            rules=[Rule(id="morning", type="min_time_coverage", date=START, value=1,
+                        start_time="00:00", end_time="07:00")],
+        )
+        first_day = Assignment(employee_id="first", date=START, shift_id="day")
+        issues = validate(p, [first_day]).issues
+        self.assertEqual({i.code for i in issues}, {"min_time_coverage", "rest"})
+        shortage = next(i for i in issues if i.code == "min_time_coverage")
+        self.assertEqual((shortage.start_time, shortage.end_time), ("00:00", "00:30"))
+        result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(result.status, "infeasible", result)
+
+    def test_breaks_must_fit_without_overlaps(self):
+        for breaks in (
+            [ShiftBreak(start="06:00", end="07:00")],
+            [ShiftBreak(start="12:00", end="12:30"), ShiftBreak(start="12:15", end="13:00")],
+            [ShiftBreak(start="12:00", end="12:00")],
+        ):
+            with self.subTest(breaks=breaks), self.assertRaises(ValidationError):
+                Shift(id="split", name="日勤", start="09:00", end="17:00", paid_minutes=420, breaks=breaks)
 
     def test_fixed_shift_for_an_unavailable_employee_is_infeasible(self):
         p = problem(

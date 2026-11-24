@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from functools import cache
 
-from .calendar_rules import DAY, interval
+from .calendar_rules import DAY
 from .models import Problem, Rule, clock_minutes
 
 MINUTES_PER_DAY = 1440
@@ -44,18 +44,24 @@ def staffing_windows(problem: Problem, rule: Rule) -> Iterator[tuple[date, int, 
 
 def time_staffing_segments(problem: Problem) -> Iterator[TimeSegment]:
     history = {(row.date, row.shift_id) for row in problem.history if row.date == problem.start_date - DAY}
+    historical = problem.historical_shifts
+    working_ranges = {shift.id: tuple(shift.working_ranges()) for shift in problem.shifts}
+    historical_ranges = {key: tuple(historical[key].working_ranges()) for _, key in history}
 
     @cache
     def operating_slots(day: date) -> list[tuple[Slot, int, int]]:
-        midnight = day.toordinal() * MINUTES_PER_DAY
         slots = []
-        for shift_day in (day - DAY, day):
-            for shift in problem.shifts:
-                slot = shift_day, shift.id
-                if problem.in_period(shift_day) or slot in history:
-                    start, end = interval(shift_day, shift)
-                    if start < midnight + MINUTES_PER_DAY and end > midnight:
-                        slots.append((slot, start - midnight, end - midnight))
+        for shift_day, offset in ((day - DAY, -MINUTES_PER_DAY), (day, 0)):
+            if problem.in_period(shift_day):
+                ranges = working_ranges
+            elif shift_day == problem.start_date - DAY:
+                ranges = historical_ranges
+            else:
+                continue
+            for shift_id, intervals in ranges.items():
+                for start, end in intervals:
+                    if start + offset < MINUTES_PER_DAY and end + offset > 0:
+                        slots.append(((shift_day, shift_id), start + offset, end + offset))
         return slots
 
     for rule in problem.rules:
@@ -63,7 +69,7 @@ def time_staffing_segments(problem: Problem) -> Iterator[TimeSegment]:
             continue
         for day, start, end in staffing_windows(problem, rule):
             slots = operating_slots(day)
-            # Staffing can change only at a shift's start or end. Include
+            # Staffing changes at the boundaries of work and breaks. Include
             # uncovered segments so a staffing gap becomes an infeasibility.
             boundaries = sorted({start, end} | {minute for _, first, last in slots
                                                  for minute in (first, last) if start < minute < end})

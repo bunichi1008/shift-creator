@@ -19,12 +19,18 @@ type Employee struct {
 	TargetNights  int      `json:"target_nights"`
 }
 
+type ShiftBreak struct {
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
 type Shift struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Start       string `json:"start"`
-	End         string `json:"end"`
-	PaidMinutes int    `json:"paid_minutes"`
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	Start       string       `json:"start"`
+	End         string       `json:"end"`
+	PaidMinutes int          `json:"paid_minutes"`
+	Breaks      []ShiftBreak `json:"breaks,omitempty"`
 }
 
 type Coverage struct {
@@ -80,6 +86,7 @@ type Problem struct {
 	Days             int           `json:"days"`
 	Employees        []Employee    `json:"employees"`
 	Shifts           []Shift       `json:"shifts"`
+	HistoryShifts    []Shift       `json:"history_shifts,omitempty"`
 	Coverage         []Coverage    `json:"coverage"`
 	UseShiftCoverage *bool         `json:"use_shift_coverage,omitempty"`
 	Preferences      []Preference  `json:"preferences"`

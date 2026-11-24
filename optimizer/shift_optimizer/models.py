@@ -53,20 +53,55 @@ class Employee(Record):
         return self
 
 
+class ShiftBreak(Record):
+    start: Clock
+    end: Clock
+
+
 class Shift(Record):
     id: ID
     name: Name
     start: Clock
     end: Clock
     paid_minutes: int = Field(strict=True, gt=0, le=1440)
+    breaks: list[ShiftBreak] = Field(default_factory=list, max_length=12)
 
     @model_validator(mode="after")
     def check_duration(self) -> Shift:
-        start = clock_minutes(self.start)
-        end = clock_minutes(self.end)
-        if self.id == "off" or start == end or self.paid_minutes > (end - start) % 1440:
+        start, end = self.clock_range()
+        if self.id == "off" or start == end:
             raise ValueError("invalid working shift or paid duration")
+        previous_end = start
+        for first, last in self.break_ranges():
+            if first < previous_end or last > end or first == last:
+                raise ValueError(f"breaks in {self.name} must be inside the shift and must not overlap")
+            previous_end = last
+        if self.paid_minutes > sum(last - first for first, last in self.working_ranges()):
+            raise ValueError(f"paid duration in {self.name} exceeds working time after breaks")
         return self
+
+    def clock_range(self) -> tuple[int, int]:
+        start = clock_minutes(self.start)
+        return start, start + (clock_minutes(self.end) - start) % 1440
+
+    def break_ranges(self) -> list[tuple[int, int]]:
+        start = clock_minutes(self.start)
+        ranges = []
+        for item in self.breaks:
+            first = clock_minutes(item.start)
+            duration = (clock_minutes(item.end) - first) % 1440
+            beginning = start + (first - start) % 1440
+            ranges.append((beginning, beginning + duration))
+        return sorted(ranges)
+
+    def working_ranges(self) -> Iterator[tuple[int, int]]:
+        first, end = self.clock_range()
+        for break_start, break_end in self.break_ranges():
+            if first < break_start:
+                yield first, break_start
+            first = break_end
+        if first < end:
+            yield first, end
 
 
 def clock_minutes(value: str) -> int:
@@ -137,6 +172,7 @@ class Problem(Record):
     days: int = Field(strict=True, ge=1, le=31)
     employees: list[Employee] = Field(min_length=1, max_length=100)
     shifts: list[Shift] = Field(min_length=1, max_length=12)
+    history_shifts: list[Shift] = Field(default_factory=list, max_length=100)
     coverage: list[Coverage] = Field(max_length=372)
     use_shift_coverage: bool = Field(default=True, strict=True)
     preferences: list[Preference] = Field(max_length=3100)
@@ -159,6 +195,10 @@ class Problem(Record):
     def shift_staffing(self) -> list[Coverage]:
         return self.coverage if self.use_shift_coverage else []
 
+    @property
+    def historical_shifts(self) -> dict[str, Shift]:
+        return {shift.id: shift for shift in [*self.shifts, *self.history_shifts]}
+
     @model_validator(mode="after")
     def check_references(self) -> Problem:
         if not 2000 <= self.start_date.year <= 2099:
@@ -168,6 +208,8 @@ class Problem(Record):
         skills = {skill for item in self.employees for skill in item.skills}
         if len(employees) != len(self.employees) or len(shifts) != len(self.shifts):
             raise ValueError("duplicate employee or shift IDs")
+        check_unique([shift.id for shift in self.history_shifts], "historical shift ID")
+        historical = self.historical_shifts
         if self.limits.night_shift_id and self.limits.night_shift_id not in shifts:
             raise ValueError("unknown night shift")
         if self.limits.no_next_day_after_night and not self.limits.night_shift_id:
@@ -190,7 +232,9 @@ class Problem(Record):
         for field, rows in (("baseline", self.baseline), ("locks", self.locks), ("history", self.history)):
             check_unique([row.cell for row in rows], f"{field} cell")
             for row in rows:
-                usable_shift = row.shift_id in shifts or (field == "locks" and row.shift_id == "off")
+                usable_shift = row.shift_id in (historical if field == "history" else shifts) or (
+                    field == "locks" and row.shift_id == "off"
+                )
                 usable_date = (
                     self.start_date - timedelta(days=31) <= row.date < self.start_date
                     if field == "history" else self.in_period(row.date)

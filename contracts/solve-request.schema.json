@@ -277,6 +277,14 @@
           "title": "Shifts",
           "type": "array"
         },
+        "history_shifts": {
+          "items": {
+            "$ref": "#/$defs/Shift"
+          },
+          "maxItems": 100,
+          "title": "History Shifts",
+          "type": "array"
+        },
         "coverage": {
           "items": {
             "$ref": "#/$defs/Coverage"
@@ -522,6 +530,14 @@
           "maximum": 1440,
           "title": "Paid Minutes",
           "type": "integer"
+        },
+        "breaks": {
+          "items": {
+            "$ref": "#/$defs/ShiftBreak"
+          },
+          "maxItems": 12,
+          "title": "Breaks",
+          "type": "array"
         }
       },
       "required": [
@@ -532,6 +548,27 @@
         "paid_minutes"
       ],
       "title": "Shift",
+      "type": "object"
+    },
+    "ShiftBreak": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$",
+          "title": "End",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "ShiftBreak",
       "type": "object"
     }
   },
