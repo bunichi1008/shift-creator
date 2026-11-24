@@ -403,7 +403,9 @@
             "fixed",
             "max_consecutive",
             "max_work_minutes",
-            "min_time_coverage"
+            "min_time_coverage",
+            "available_only",
+            "prefer_off"
           ],
           "title": "Type",
           "type": "string"
@@ -420,6 +422,32 @@
           ],
           "default": null,
           "title": "Date"
+        },
+        "dates": {
+          "items": {
+            "format": "date",
+            "type": "string"
+          },
+          "maxItems": 31,
+          "title": "Dates",
+          "type": "array"
+        },
+        "weekdays": {
+          "items": {
+            "enum": [
+              "mon",
+              "tue",
+              "wed",
+              "thu",
+              "fri",
+              "sat",
+              "sun"
+            ],
+            "type": "string"
+          },
+          "maxItems": 7,
+          "title": "Weekdays",
+          "type": "array"
         },
         "employee_id": {
           "anyOf": [

@@ -313,7 +313,7 @@ func (s *server) editRule(w http.ResponseWriter, r *http.Request) {
 			}
 			body.Rule.ID = id
 			p.Rules[index] = body.Rule
-			return nil
+			return checkStaffRuleUniqueness(p.Rules)
 		})
 	})
 }

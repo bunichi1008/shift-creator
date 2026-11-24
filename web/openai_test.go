@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -136,7 +137,7 @@ func TestTimeCoverageProposalValidatesRangeAndScope(t *testing.T) {
 		StartTime: "22:00", EndTime: "06:00", Value: &value}
 	const phrase = "毎日22時から翌6時にリーダーを最低2人"
 	proposal, err := checkedProposal(p, phrase, Proposal{Status: "proposal", Rule: &rule})
-	if err != nil || proposal.Status != "proposal" || proposal.Rule == nil || *proposal.Rule != rule {
+	if err != nil || proposal.Status != "proposal" || proposal.Rule == nil || !reflect.DeepEqual(*proposal.Rule, rule) {
 		t.Fatalf("unexpected time coverage proposal: %+v, %v", proposal, err)
 	}
 	rule.EndTime = "24:00"
@@ -177,6 +178,25 @@ func TestProposalRejectsDatesAndEmployeesTheModelInvented(t *testing.T) {
 				t.Fatalf("unexpected proposal: %+v, %v", result, err)
 			}
 		})
+	}
+}
+
+func TestProposalRequiresExplicitAvailabilityScope(t *testing.T) {
+	p, err := demoFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := Rule{Type: "available_only", EmployeeID: "e02", Dates: []string{"2026-12-07", "2026-12-03"}}
+	explicit := "石井 凛が出勤できるのは12月7日と12月3日だけです"
+	got, err := checkedProposal(p, explicit, Proposal{Status: "proposal", Rule: &rule})
+	if err != nil || got.Rule == nil || !reflect.DeepEqual(got.Rule.Dates, []string{"2026-12-03", "2026-12-07"}) {
+		t.Fatalf("unexpected availability: %+v, %v", got, err)
+	}
+	for _, phrase := range []string{"石井 凛は12月7日に出勤できます", "石井 凛は12月7日だけ出勤できない"} {
+		got, err := checkedProposal(p, phrase, Proposal{Status: "proposal", Rule: &rule})
+		if err != nil || got.Status != "clarify" {
+			t.Fatalf("inferred restrictions: %+v, %v", got, err)
+		}
 	}
 }
 

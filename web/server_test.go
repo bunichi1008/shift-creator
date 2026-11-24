@@ -166,6 +166,23 @@ func TestRulesAreSavedTogetherInOneRevision(t *testing.T) {
 	}
 }
 
+func TestAvailabilityIsSavedAndEditedWithoutOverlappingRules(t *testing.T) {
+	s, _ := testServer(t)
+	h := s.handler()
+	rule := Rule{Type: "available_only", EmployeeID: "e02", Weekdays: []string{"tue", "sat"}, Dates: []string{"2026-12-10"}}
+	var plan Plan
+	request(t, h, "POST", "/api/plan/rules", map[string]any{"revision": 1, "rule": rule}, 201, &plan)
+	added := plan.Problem.Rules[len(plan.Problem.Rules)-1]
+	request(t, h, "POST", "/api/plan/rules", map[string]any{"revision": 2, "rule": rule}, 422, nil)
+	rule.Dates = []string{"2026-12-11"}
+	request(t, h, "PUT", "/api/plan/rules/"+added.ID, map[string]any{"revision": 2, "rule": rule}, 200, &plan)
+	if plan.Revision != 3 || plan.Problem.Rules[len(plan.Problem.Rules)-1].Dates[0] != "2026-12-11" {
+		t.Fatalf("availability edit was not saved: %+v", plan.Problem.Rules)
+	}
+	rule.Dates = []string{"2026-11-30"}
+	request(t, h, "PUT", "/api/plan/rules/"+added.ID, map[string]any{"revision": 3, "rule": rule}, 422, nil)
+}
+
 func TestAdminOriginAndTaskAuthentication(t *testing.T) {
 	s, _ := testServer(t)
 	s.adminToken, s.taskToken = "test-admin", "test-task"

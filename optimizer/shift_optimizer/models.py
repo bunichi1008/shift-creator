@@ -14,8 +14,10 @@ Clock = Annotated[str, Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")]
 Minutes = Annotated[int, Field(strict=True, ge=0, le=44_640)]
 RuleType = Literal[
     "min_skill_coverage", "min_coverage", "unavailable", "fixed", "max_consecutive",
-    "max_work_minutes", "min_time_coverage",
+    "max_work_minutes", "min_time_coverage", "available_only", "prefer_off",
 ]
+Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 ObjectiveStage = Literal["weighted_preference_violations", "changed_cells", "fairness_cost"]
 DEFAULT_OBJECTIVE_ORDER: tuple[ObjectiveStage, ...] = (
     "weighted_preference_violations", "changed_cells", "fairness_cost",
@@ -177,6 +179,8 @@ class Rule(Record):
     id: ID
     type: RuleType
     date: CalendarDate | None = None
+    dates: list[CalendarDate] = Field(default_factory=list, max_length=31)
+    weekdays: list[Weekday] = Field(default_factory=list, max_length=7)
     employee_id: ID | None = None
     shift_id: ID | None = None
     all_dates: bool = Field(default=False, strict=True)
@@ -185,6 +189,9 @@ class Rule(Record):
     start_time: Clock | None = None
     end_time: Clock | None = None
     value: int | None = Field(default=None, strict=True, ge=0, le=44_640)
+
+    def allows_day(self, day: Date) -> bool:
+        return day in self.dates or WEEKDAYS[day.weekday()] in self.weekdays
 
 
 class Limits(Record):
@@ -283,6 +290,8 @@ class Problem(Record):
                 if field == "history" and historical[row.shift_id].selected_flexible_breaks(row.break_starts) is None:
                     raise ValueError(f"history requires actual flexible break times: {row.cell}")
         check_unique([r.id for r in self.rules], "rule ID")
+        check_unique([r.employee_id for r in self.rules if r.type == "available_only"], "availability employee")
+        check_unique([(r.employee_id, r.date) for r in self.rules if r.type == "prefer_off"], "day-off request")
         for rule in self.rules:
             self.check_rule(rule, employees, shifts, skills)
         return self
@@ -295,7 +304,23 @@ class Problem(Record):
         for rule in self.rules:
             if rule.type == "unavailable":
                 result[rule.employee_id, rule.date].add(rule.shift_id)
+            elif rule.type == "available_only":
+                for index in range(self.days):
+                    day = self.start_date + timedelta(days=index)
+                    if not rule.allows_day(day):
+                        result[rule.employee_id, day].add(None)
         return result
+
+    def soft_preferences(self) -> list[Preference]:
+        day_off_rules = {
+            (rule.employee_id, rule.date): Preference(employee_id=rule.employee_id, date=rule.date,
+                                                       kind="prefer_off", weight=rule.value)
+            for rule in self.rules if rule.type == "prefer_off"
+        }
+        return [
+            row for row in self.preferences
+            if row.kind != "unavailable" and (row.kind != "prefer_off" or (row.employee_id, row.date) not in day_off_rules)
+        ] + list(day_off_rules.values())
 
     def fixed_slots(self) -> Iterator[Assignment]:
         yield from self.locks
@@ -321,6 +346,8 @@ class Problem(Record):
             "min_coverage": ({"date", "shift_id", "value"}, set()),
             "min_time_coverage": ({"date", "start_time", "end_time", "value"}, {"skill_id"}),
             "unavailable": ({"date", "employee_id"}, {"shift_id"}),
+            "available_only": ({"employee_id"}, {"dates", "weekdays"}),
+            "prefer_off": ({"date", "employee_id", "value"}, set()),
             "fixed": ({"date", "employee_id", "shift_id"}, set()),
             "max_consecutive": ({"value"}, {"employee_id"}),
             "max_work_minutes": ({"employee_id", "value"}, set()),
@@ -335,6 +362,13 @@ class Problem(Record):
             raise ValueError(f"missing or unexpected fields in rule {rule.id}")
         if rule.date is not None and not self.in_period(rule.date):
             raise ValueError(f"date outside the period in rule {rule.id}")
+        if rule.type == "available_only":
+            if not rule.dates and not rule.weekdays:
+                raise ValueError(f"no available days in rule {rule.id}")
+            check_unique(rule.dates, "available date")
+            check_unique(rule.weekdays, "available weekday")
+            if any(not self.in_period(day) for day in rule.dates):
+                raise ValueError(f"available date outside the period in rule {rule.id}")
         if rule.type == "min_time_coverage" and rule.start_time == rule.end_time != "00:00":
             raise ValueError(f"start and end times must differ in rule {rule.id}")
         if rule.employee_id is not None and rule.employee_id not in employees:
@@ -346,6 +380,8 @@ class Problem(Record):
             raise ValueError(f"unknown skill in rule {rule.id}")
         if rule.type in {"min_coverage", "min_skill_coverage", "min_time_coverage"} and not 1 <= rule.value <= 100:
             raise ValueError(f"staffing rule must use a value from 1 to 100: {rule.id}")
+        if rule.type == "prefer_off" and not 1 <= rule.value <= 100:
+            raise ValueError(f"day-off preference weight must be from 1 to 100: {rule.id}")
         if rule.type == "max_consecutive" and not 1 <= rule.value <= 31:
             raise ValueError(f"consecutive limit must be from 1 to 31: {rule.id}")
 

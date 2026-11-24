@@ -10,6 +10,8 @@ import (
 const schemaVersion = 1
 const maxPlanRules = 120
 
+var allowedWeekdays = []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+
 type Employee struct {
 	ID            string   `json:"id"`
 	Name          string   `json:"name"`
@@ -57,17 +59,19 @@ type Preference struct {
 }
 
 type Rule struct {
-	ID         string `json:"id,omitempty"`
-	Type       string `json:"type"`
-	Date       string `json:"date,omitempty"`
-	EmployeeID string `json:"employee_id,omitempty"`
-	ShiftID    string `json:"shift_id,omitempty"`
-	AllDates   bool   `json:"all_dates,omitempty"`
-	AllShifts  bool   `json:"all_shifts,omitempty"`
-	SkillID    string `json:"skill_id,omitempty"`
-	StartTime  string `json:"start_time,omitempty"`
-	EndTime    string `json:"end_time,omitempty"`
-	Value      *int   `json:"value,omitempty"`
+	ID         string   `json:"id,omitempty"`
+	Type       string   `json:"type"`
+	Date       string   `json:"date,omitempty"`
+	Dates      []string `json:"dates,omitempty"`
+	Weekdays   []string `json:"weekdays,omitempty"`
+	EmployeeID string   `json:"employee_id,omitempty"`
+	ShiftID    string   `json:"shift_id,omitempty"`
+	AllDates   bool     `json:"all_dates,omitempty"`
+	AllShifts  bool     `json:"all_shifts,omitempty"`
+	SkillID    string   `json:"skill_id,omitempty"`
+	StartTime  string   `json:"start_time,omitempty"`
+	EndTime    string   `json:"end_time,omitempty"`
+	Value      *int     `json:"value,omitempty"`
 }
 
 type Limits struct {
@@ -141,6 +145,11 @@ func (p Problem) checkRule(rule Rule) error {
 		date, employee, shift = true, true, true
 	case "unavailable":
 		date, employee, shift = true, true, rule.ShiftID != ""
+	case "available_only":
+		employee = true
+	case "prefer_off":
+		date, employee, min, max = true, true, 1, 100
+		valueLabel = "希望の重み"
 	case "max_consecutive":
 		employee, min, max = rule.EmployeeID != "", 1, 31
 		valueLabel = "連勤の上限日数"
@@ -190,6 +199,13 @@ func (p Problem) checkRule(rule Rule) error {
 	if skill && !p.validSkill(rule.SkillID) {
 		return inputError("資格を確認してください")
 	}
+	if rule.Type == "available_only" {
+		if err := p.checkAvailableDays(rule.Dates, rule.Weekdays); err != nil {
+			return err
+		}
+	} else if len(rule.Dates) != 0 || len(rule.Weekdays) != 0 {
+		return inputError("複数の日付・曜日は出勤可能日の条件で指定してください")
+	}
 	if timeCoverage {
 		for _, value := range []string{rule.StartTime, rule.EndTime} {
 			clock, err := time.Parse("15:04", value)
@@ -203,6 +219,45 @@ func (p Problem) checkRule(rule Rule) error {
 	}
 	if rule.Value != nil && (*rule.Value < min || *rule.Value > max) {
 		return inputError(fmt.Sprintf("数値は %d〜%d の範囲で指定してください", min, max))
+	}
+	return nil
+}
+
+func (p Problem) checkAvailableDays(dates, weekdays []string) error {
+	if len(dates) == 0 && len(weekdays) == 0 {
+		return inputError("出勤できる日付または曜日を選んでください")
+	}
+	seen := make(map[string]bool, len(dates)+len(weekdays))
+	for _, date := range dates {
+		if !p.validDate(date) || seen[date] {
+			return inputError("対象期間内の出勤可能日を重複なく選んでください")
+		}
+		seen[date] = true
+	}
+	for _, weekday := range weekdays {
+		if !slices.Contains(allowedWeekdays, weekday) || seen[weekday] {
+			return inputError("出勤可能な曜日を重複なく選んでください")
+		}
+		seen[weekday] = true
+	}
+	return nil
+}
+
+func checkStaffRuleUniqueness(rules []Rule) error {
+	seen := make(map[[3]string]bool)
+	for _, rule := range rules {
+		switch rule.Type {
+		case "available_only", "prefer_off":
+			key := [3]string{rule.Type, rule.EmployeeID, rule.Date}
+			if seen[key] {
+				label := "この職員の出勤可能日"
+				if rule.Type == "prefer_off" {
+					label = "この職員の同じ日の休み希望"
+				}
+				return inputError(label + "は登録済みです。既存の条件を編集してください")
+			}
+			seen[key] = true
+		}
 	}
 	return nil
 }
@@ -222,7 +277,7 @@ func (p Problem) checkRuleBatch(rules []Rule) error {
 			return inputError(fmt.Sprintf("%d件目は、%s", index+1, err))
 		}
 	}
-	return nil
+	return checkStaffRuleUniqueness(append(slices.Clone(p.Rules), rules...))
 }
 
 type Plan struct {

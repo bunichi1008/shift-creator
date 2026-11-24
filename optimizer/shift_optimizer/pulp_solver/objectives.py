@@ -14,7 +14,7 @@ def build_objectives(roster: RosterModel) -> dict[str, pulp.LpAffineExpression]:
     settings = roster.problem.objective_settings
     costs = {}
     preferences = []
-    for preference in roster.problem.preferences:
+    for preference in roster.problem.soft_preferences():
         if preference.kind == "prefer_off":
             preferences.append(preference.weight * roster.work[preference.employee_id, preference.date])
         elif preference.kind == "prefer_shift":

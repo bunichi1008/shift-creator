@@ -45,6 +45,49 @@ def solve_constraints(p):
 
 
 class ConstraintTest(unittest.TestCase):
+    def test_available_dates_and_weekdays_include_only_the_selected_days(self):
+        p = problem(
+            days=3,
+            coverage=[Coverage(date=START + index * DAY, shift_id="day", minimum=1, maximum=1)
+                      for index in range(3)],
+            rules=[
+                Rule(id="availability", type="available_only", employee_id="first",
+                     weekdays=["tue"], dates=[START + DAY]),
+                Rule(id="day-off", type="unavailable", employee_id="first", date=START + DAY),
+            ],
+            employees=[employee("first", target=480), employee("second", target=960)],
+        )
+        result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(result.status, "optimal", result)
+        by_date = {row.date: row.employee_id for row in result.assignments if row.shift_id == "day"}
+        self.assertEqual(by_date, {START: "first", START + DAY: "second", START + 2 * DAY: "second"})
+
+        outside = Assignment(employee_id="first", date=START + 2 * DAY, shift_id="day")
+        self.assertTrue(any(i.code == "available_only" and i.rule_id == "availability"
+                            for i in validate(p, [outside]).issues))
+        p.locks = [outside]
+        impossible = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(impossible.status, "infeasible", impossible)
+        self.assertTrue(any(i.code == "available_only" for i in impossible.diagnostics))
+
+    def test_day_off_request_is_soft_and_overrides_an_imported_copy(self):
+        p = problem(
+            days=1,
+            coverage=[Coverage(date=START, shift_id="day", minimum=1, maximum=1),
+                      Coverage(date=START, shift_id="night", minimum=0, maximum=0)],
+            preferences=[Preference(employee_id="first", date=START, kind="prefer_off", weight=1)],
+            rules=[Rule(id="rest-request", type="prefer_off", employee_id="first", date=START, value=3)],
+        )
+        result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual([row.employee_id for row in result.assignments], ["second"])
+        self.assertEqual(result.report.metrics.preference_total, 1)
+        self.assertEqual(result.report.metrics.preference_met, 1)
+        p.locks = [Assignment(employee_id="first", date=START, shift_id="day")]
+        result = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(result.status, "optimal", result)
+        self.assertEqual(result.report.issues, [])
+        self.assertEqual(result.report.metrics.weighted_preference_violations, 3)
+
     def test_coverage_skill_and_daily_assignment(self):
         p = problem(
             coverage=[Coverage(date=START, shift_id=shift, minimum=1, maximum=1) for shift in ("day", "night")],

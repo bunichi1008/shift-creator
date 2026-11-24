@@ -34,6 +34,7 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
     by_employee: dict[str, list[Assignment]] = defaultdict(list)
     by_slot: dict[tuple[date, str], list[str]] = defaultdict(list)
     selected_breaks = {}
+    availability = {rule.employee_id: rule for rule in problem.rules if rule.type == "available_only"}
     for row in problem.history:
         by_employee[row.employee_id].append(row)
     for row in assignments:
@@ -46,6 +47,9 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
         assigned[row.cell] = row.shift_id
         by_slot[row.date, row.shift_id].append(row.employee_id)
         by_employee[row.employee_id].append(row)
+        allowed = availability.get(row.employee_id)
+        if allowed is not None and not allowed.allows_day(row.date):
+            cell_issue("available_only", "指定された出勤可能日以外に配置されています", row, rule_id=allowed.id)
         shift = shifts[row.shift_id]
         selected = shift.selected_flexible_breaks(row.break_starts)
         if selected is None:
@@ -64,12 +68,14 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
 
     preference_total = preference_met = weighted_violations = 0
     for preference in problem.preferences:
-        item = assigned.get((preference.employee_id, preference.date))
-        if preference.kind == "unavailable":
-            if item and (not preference.shift_id or item == preference.shift_id):
-                issue("unavailable", "勤務不可の枠に配置されています", employee_id=preference.employee_id,
-                      date=preference.date, shift_id=item)
+        if preference.kind != "unavailable":
             continue
+        item = assigned.get((preference.employee_id, preference.date))
+        if item and (not preference.shift_id or item == preference.shift_id):
+            issue("unavailable", "勤務不可の枠に配置されています", employee_id=preference.employee_id,
+                  date=preference.date, shift_id=item)
+    for preference in problem.soft_preferences():
+        item = assigned.get((preference.employee_id, preference.date))
         preference_total += 1
         met = item is None if preference.kind == "prefer_off" else item == preference.shift_id
         preference_met += int(met)
@@ -228,7 +234,7 @@ def fixed_diagnostics(problem: Problem) -> list[Issue]:
         return []
     report = validate(problem, list(fixed.values()))
     codes = {
-        "duplicate_assignment", "unavailable", "fixed", "locked_assignment",
+        "duplicate_assignment", "unavailable", "available_only", "fixed", "locked_assignment",
         "rest", "max_consecutive", "max_work_minutes",
     }
     return [
