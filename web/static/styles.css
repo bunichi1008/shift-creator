@@ -112,6 +112,12 @@ dialog form { display: grid; gap: 12px; }
 dialog .notice.subtle { margin: 0; }
 dialog label { display: flex; flex-direction: column; gap: 4px; font-weight: 650; }
 dialog .check { flex-direction: row; align-items: center; gap: 7px; }
+#rule-availability fieldset { min-width: 0; margin: 8px 0 0; padding: 8px; border: 1px solid var(--stroke); border-radius: 8px; }
+#rule-availability legend { padding-inline: 4px; font-weight: 650; }
+.day-choices { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.day-choices label { align-items: center; justify-content: center; gap: 0; min-height: 40px; text-align: center; font-size: .8rem; border-radius: 5px; cursor: pointer; }
+.day-choices label:has(:checked) { background: #e9eefb; color: var(--accent); }
+.day-choices input { margin: 3px; }
 .dialog-actions { display: flex; justify-content: end; flex-wrap: wrap; gap: 8px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 input:not([type="checkbox"]), select, textarea { display: block; width: 100%; border: 1px solid var(--stroke); border-radius: 8px; background: var(--paper); color: var(--ink); min-height: 36px; padding: 7px 9px; font: inherit; }

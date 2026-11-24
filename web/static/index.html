@@ -127,9 +127,11 @@
     <label>条件の種類
       <select name="type" id="rule-type">
         <option value="min_time_coverage">時間帯の最低人数</option>
+        <option value="available_only">出勤可能日だけ指定</option>
+        <option value="prefer_off">休み希望（できれば）</option>
+        <option value="unavailable">勤務不可（必ず休み）</option>
         <option value="min_skill_coverage">勤務枠の資格者の最低人数</option>
         <option value="min_coverage">勤務枠の最低人数</option>
-        <option value="unavailable">勤務不可</option>
         <option value="fixed">勤務・休みを固定</option>
         <option value="max_consecutive">連勤の上限</option>
         <option value="max_work_minutes">勤務時間の上限（分）</option>
@@ -145,6 +147,17 @@
       <label data-field="end_time">終了時刻<input type="time" name="end_time"></label>
       <label data-field="skill_id">資格<select name="skill_id"></select></label>
       <label data-field="value" id="value-label"><span>数値</span><input type="number" name="value" min="0" max="44640" step="1"></label>
+    </div>
+    <div id="rule-availability" hidden>
+      <p class="meta">選んだ曜日と日付にだけ勤務を入れられます。夜勤も勤務開始日で判定します。</p>
+      <fieldset>
+        <legend>毎週出勤できる曜日</legend>
+        <div class="day-choices" id="rule-weekdays"></div>
+      </fieldset>
+      <fieldset>
+        <legend>個別に出勤できる日付</legend>
+        <div class="day-choices" id="rule-dates"></div>
+      </fieldset>
     </div>
     <p class="meta" id="rule-time-help" hidden>日をまたぐ場合は開始日を指定します。終日は 00:00〜00:00 です。</p>
     <div class="dialog-actions">
@@ -196,7 +209,7 @@
       <div class="settings-table" id="settings-staff"></div>
     </section>
     <section data-settings-panel="preferences" aria-label="勤務希望" hidden>
-      <p class="meta">重みが大きい希望ほど、外れたときのペナルティが大きくなります。</p>
+      <p class="meta">休み希望と出勤可能日は、勤務表の「条件を追加」から登録できます。重みが大きい希望ほど優先されます。</p>
       <div class="settings-table" id="settings-preferences"></div>
     </section>
     <section data-settings-panel="optimization" aria-label="勤務ルールと最適化" hidden>

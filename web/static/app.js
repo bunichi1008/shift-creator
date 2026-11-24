@@ -10,6 +10,8 @@ const state = {
 };
 
 const ruleTypes = {
+  available_only: { label: "出勤可能日だけ指定", required: ["employee_id"], optional: [] },
+  prefer_off: { label: "休み希望", required: ["date", "employee_id", "value"], optional: [], valueLabel: "希望の重み", min: 1, max: 100 },
   min_time_coverage: { label: "時間帯の最低人数", required: ["date", "start_time", "end_time", "value"], optional: ["all_dates", "skill_id"], valueLabel: "最低人数", min: 1, max: 100 },
   min_skill_coverage: { label: "資格者の最低人数", required: ["date", "shift_id", "skill_id", "value"], optional: ["all_dates", "all_shifts"], valueLabel: "最低人数", min: 1, max: 100 },
   min_coverage: { label: "勤務枠の最低人数", required: ["date", "shift_id", "value"], optional: ["all_dates", "all_shifts"], valueLabel: "最低人数", min: 1, max: 100 },
@@ -18,6 +20,7 @@ const ruleTypes = {
   max_consecutive: { label: "連勤の上限", required: ["value"], optional: ["employee_id"], valueLabel: "上限日数", min: 1, max: 31 },
   max_work_minutes: { label: "勤務時間の上限", required: ["employee_id", "value"], optional: [], valueLabel: "上限（分）", min: 0, max: 44640 },
 };
+const weekdayLabels = { mon: "月", tue: "火", wed: "水", thu: "木", fri: "金", sat: "土", sun: "日" };
 
 const resultLabels = {
   optimal: "最適解", feasible: "実行可能・最適性未確認", infeasible: "実行不能",
@@ -290,6 +293,14 @@ function renderBreakPlanRows() {
 }
 
 function describeRule(rule) {
+  if (rule.type === "available_only") {
+    const weekdays = (rule.weekdays || []).map((day) => weekdayLabels[day]).join("・");
+    const dates = rule.dates || [];
+    const listed = dates.slice(0, 4).map((day) => day.slice(5).replace("-", "/")).join("・");
+    const more = dates.length > 4 ? " ほか" + (dates.length - 4) + "日" : "";
+    const allowed = [weekdays && "毎週 " + weekdays, listed && listed + more].filter(Boolean).join("、");
+    return personName(rule.employee_id) + " ／ 出勤可能 " + allowed + "のみ";
+  }
   const subject = [rule.all_dates ? "期間中の毎日" : rule.date?.slice(5).replace("-", "/"),
     rule.employee_id && personName(rule.employee_id),
     rule.all_shifts ? "全勤務枠" : rule.shift_id && shiftName(rule.shift_id), rule.skill_id && skillName(rule.skill_id)]
@@ -299,7 +310,7 @@ function describeRule(rule) {
     min_time_coverage: "最低 " + rule.value + " 名",
     min_skill_coverage: "最低 " + rule.value + " 名",
     min_coverage: "最低 " + rule.value + " 名",
-    unavailable: "勤務不可", fixed: "固定",
+    unavailable: "勤務不可", fixed: "固定", prefer_off: "休み希望（重み " + rule.value + "）",
     max_consecutive: "連勤 " + rule.value + " 日まで",
     max_work_minutes: "勤務 " + rule.value + " 分まで",
   }[rule.type];
@@ -539,7 +550,8 @@ function ruleFields(values = {}) {
   form.elements.start_time.value = values.start_time || "";
   form.elements.end_time.value = values.end_time || "";
   $("rule-time-help").hidden = type !== "min_time_coverage";
-  form.elements.value.value = values.value ?? "";
+  renderRuleAvailability(type, values);
+  form.elements.value.value = values.value ?? (type === "prefer_off" ? 1 : "");
   form.elements.value.min = rule.min ?? 0;
   form.elements.value.max = rule.max ?? 44640;
   $("value-label").querySelector("span").textContent = rule.valueLabel || "数値";
@@ -551,6 +563,34 @@ function ruleFields(values = {}) {
     input.required = rule.required.includes(key);
   }
   syncRuleScope();
+}
+
+function renderRuleAvailability(type, rule) {
+  const controls = $("rule-availability");
+  controls.hidden = type !== "available_only";
+  const weekdays = $("rule-weekdays");
+  const dates = $("rule-dates");
+  weekdays.replaceChildren();
+  dates.replaceChildren();
+  if (controls.hidden) return;
+  const dayChoice = (key, value, text, label, checked) => {
+    const node = el("label");
+    const input = el("input");
+    input.type = "checkbox";
+    input.name = key;
+    input.value = value;
+    input.checked = checked;
+    input.setAttribute("aria-label", label);
+    node.append(input, el("span", text));
+    return node;
+  };
+  for (const [key, name] of Object.entries(weekdayLabels)) {
+    weekdays.append(dayChoice("weekdays", key, name, "毎週" + name + "曜日", rule.weekdays?.includes(key)));
+  }
+  for (const day of periodDates()) {
+    const label = day.date.slice(5).replace("-", "/") + " " + "日月火水木金土"[day.weekday];
+    dates.append(dayChoice("dates", day.date, label, formatDate(day.date), rule.dates?.includes(day.date)));
+  }
 }
 
 function syncRuleScope() {
@@ -678,8 +718,13 @@ $("rule-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   runAction(event.submitter, async () => {
-    const data = Object.fromEntries(new FormData(form));
+    const fields = new FormData(form);
+    const data = Object.fromEntries(fields);
     const rule = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== ""));
+    if (rule.type === "available_only") {
+      rule.dates = fields.getAll("dates");
+      rule.weekdays = fields.getAll("weekdays");
+    }
     if ("value" in rule) rule.value = Number(rule.value);
     if ("all_dates" in rule) rule.all_dates = true;
     if ("all_shifts" in rule) rule.all_shifts = true;
