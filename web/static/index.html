@@ -59,10 +59,10 @@
       </section>
       <section class="card padded" aria-labelledby="ai-title">
         <h2 id="ai-title">日本語から条件を提案</h2>
-        <p class="meta" id="ai-help">複数の条件や全勤務枠への指定をまとめて入力できます。</p>
+        <p class="meta" id="ai-help">時間帯や複数の条件をまとめて入力できます。</p>
         <form id="ai-form">
           <label class="sr-only" for="ai-input">日本語の勤務条件</label>
-          <textarea id="ai-input" rows="3" maxlength="500" placeholder="12月12日の夜勤にリーダーを最低1人" required></textarea>
+          <textarea id="ai-input" rows="3" maxlength="500" placeholder="毎日14時から17時まで、最低6人" required></textarea>
           <button type="submit">条件案を作る</button>
         </form>
         <p class="notice subtle" id="ai-feedback" role="status" hidden></p>
@@ -103,7 +103,8 @@
     <p class="notice subtle" id="rule-source" hidden></p>
     <label>条件の種類
       <select name="type" id="rule-type">
-        <option value="min_skill_coverage">資格者の最低人数</option>
+        <option value="min_time_coverage">時間帯の最低人数</option>
+        <option value="min_skill_coverage">勤務枠の資格者の最低人数</option>
         <option value="min_coverage">勤務枠の最低人数</option>
         <option value="unavailable">勤務不可</option>
         <option value="fixed">勤務・休みを固定</option>
@@ -117,9 +118,12 @@
       <label data-field="employee_id">職員<select name="employee_id"></select></label>
       <label data-field="shift_id">勤務種別<select name="shift_id"></select></label>
       <label class="check" data-field="all_shifts"><input type="checkbox" name="all_shifts">全勤務枠</label>
+      <label data-field="start_time">開始時刻<input type="time" name="start_time"></label>
+      <label data-field="end_time">終了時刻<input type="time" name="end_time"></label>
       <label data-field="skill_id">資格<select name="skill_id"></select></label>
       <label data-field="value" id="value-label"><span>数値</span><input type="number" name="value" min="0" max="44640" step="1"></label>
     </div>
+    <p class="meta" id="rule-time-help" hidden>日をまたぐ場合は開始日を指定します。終日は 00:00〜00:00 です。</p>
     <div class="dialog-actions">
       <button type="button" data-close>キャンセル</button>
       <button type="submit" class="primary">条件を確定</button>
@@ -153,13 +157,15 @@
       <div class="settings-table" id="settings-shifts"></div>
     </section>
     <section data-settings-panel="coverage" aria-label="必要人数" hidden>
+      <p class="meta">同じ時間に勤務している人数の下限は「条件を追加」の「時間帯の最低人数」で設定します。</p>
+      <label class="check coverage-mode"><input type="checkbox" name="use_shift_coverage">勤務種別ごとの人数枠も使う</label>
       <label>勤務種別<select id="settings-coverage-shift"></select></label>
       <div class="coverage-bulk">
         <label>最低人数<input type="number" id="coverage-bulk-min" min="0" max="100" step="1"></label>
         <label>最大人数<input type="number" id="coverage-bulk-max" min="0" max="100" step="1"></label>
         <button type="button" id="coverage-apply-all">この勤務の全日に入力</button>
       </div>
-      <p class="meta">上下限を両方空欄にすると、その日の人数枠を解除します。資格者の条件は「勤務条件」で編集できます。</p>
+      <p class="meta">上下限を両方空欄にすると、その日の勤務種別ごとの人数枠を解除します。</p>
       <div class="settings-table" id="settings-coverage"></div>
     </section>
     <section data-settings-panel="staff" aria-label="職員" hidden>

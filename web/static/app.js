@@ -8,6 +8,7 @@ const state = {
 };
 
 const ruleTypes = {
+  min_time_coverage: { label: "時間帯の最低人数", required: ["date", "start_time", "end_time", "value"], optional: ["all_dates", "skill_id"], valueLabel: "最低人数", min: 1, max: 100 },
   min_skill_coverage: { label: "資格者の最低人数", required: ["date", "shift_id", "skill_id", "value"], optional: ["all_dates", "all_shifts"], valueLabel: "最低人数", min: 1, max: 100 },
   min_coverage: { label: "勤務枠の最低人数", required: ["date", "shift_id", "value"], optional: ["all_dates", "all_shifts"], valueLabel: "最低人数", min: 1, max: 100 },
   unavailable: { label: "勤務不可", required: ["date", "employee_id"], optional: ["shift_id"] },
@@ -123,7 +124,7 @@ async function refreshPlan() {
   const form = $("ai-form");
   form.querySelectorAll("textarea, button").forEach((input) => { input.disabled = !data.has_llm; });
   $("ai-help").textContent = data.has_llm
-    ? "複数の条件や全勤務枠への指定をまとめて入力できます。"
+    ? "時間帯や複数の条件をまとめて入力できます。"
     : "OpenAI API を設定すると利用できます。勤務条件はフォームから追加できます。";
   setPlan(data.plan);
 }
@@ -212,19 +213,27 @@ function renderSchedule(days, assignments, preview) {
   $("legend").replaceChildren(...legend, el("span", "休み", "shift"), el("span", "固定", "shift locked"));
 }
 
+function describeTimeWindow(start, end) {
+  if (start === "00:00" && end === "00:00") return "終日";
+  if (end === "00:00") return start + "〜24:00";
+  return start + "〜" + (end < start ? "翌" : "") + end;
+}
+
 function describeRule(rule) {
   const subject = [rule.all_dates ? "期間中の毎日" : rule.date?.slice(5).replace("-", "/"),
     rule.employee_id && personName(rule.employee_id),
     rule.all_shifts ? "全勤務枠" : rule.shift_id && shiftName(rule.shift_id), rule.skill_id && skillName(rule.skill_id)]
     .filter(Boolean).join("・");
+  const window = rule.start_time && describeTimeWindow(rule.start_time, rule.end_time);
   const constraint = {
+    min_time_coverage: "最低 " + rule.value + " 名",
     min_skill_coverage: "最低 " + rule.value + " 名",
     min_coverage: "最低 " + rule.value + " 名",
     unavailable: "勤務不可", fixed: "固定",
     max_consecutive: "連勤 " + rule.value + " 日まで",
     max_work_minutes: "勤務 " + rule.value + " 分まで",
   }[rule.type];
-  return [subject, constraint].filter(Boolean).join(" ／ ");
+  return [subject, window, constraint].filter(Boolean).join(" ／ ");
 }
 
 function renderRules() {
@@ -289,11 +298,15 @@ function renderReport() {
   if (report) {
     const m = report.metrics;
     const preferences = m.preference_total ? m.preference_met + " / " + m.preference_total : "対象なし";
-    const coverage = m.covered_slots + " / " + m.total_slots;
-    for (const [label, value] of [["必要人数を満たす枠", coverage], ["希望反映", preferences],
+    const shiftCoverage = m.total_slots ? m.covered_slots + " / " + m.total_slots : "対象なし";
+    const timeCoverage = m.total_time_segments
+      ? m.covered_time_segments + " / " + m.total_time_segments : "";
+    for (const [label, value] of [[timeCoverage ? "必要人数を満たす時間帯" : "必要人数を満たす枠",
+      timeCoverage || shiftCoverage], ["希望反映", preferences],
       ["必須条件違反", report.issues.length + " 件"], ["変更セル", (job && m.changed_cells) ?? "—"]]) {
       const card = el("div");
       card.append(el("dt", label), el("dd", value));
+      if (label === "必要人数を満たす時間帯" && m.total_slots) card.append(el("p", "勤務別 " + shiftCoverage, "meta"));
       if (label === "必須条件違反" && (report.issues.length || diagnostics.length)) {
         const link = el("a", "詳細を見る", "meta");
         link.href = "#report-card";
@@ -310,7 +323,8 @@ function renderReport() {
     (job?.state === "queued" ? "最適化サービスの実行を待っています。" : ""), execution, stale].filter(Boolean).join(" ");
   const issueRows = [...diagnostics, ...(report?.issues || [])];
   $("issues").replaceChildren(...issueRows.map((issue) => {
-    const scope = [issue.date, issue.employee_id && personName(issue.employee_id), issue.shift_id && shiftName(issue.shift_id)]
+    const scope = [issue.date, issue.start_time && describeTimeWindow(issue.start_time, issue.end_time),
+      issue.employee_id && personName(issue.employee_id), issue.shift_id && shiftName(issue.shift_id)]
       .filter(Boolean).join("・");
     return el("li", [scope, issue.message].filter(Boolean).join(" ／ "));
   }));
@@ -401,13 +415,17 @@ function ruleFields(values = {}) {
   selectOptions(form.elements.employee_id, [["", rule.required.includes("employee_id") ? "選択してください" : "全職員"],
     ...p.employees.map((e) => [e.id, e.name])], values.employee_id || "");
   const skills = [...new Set(p.employees.flatMap((e) => e.skills))].sort();
-  selectOptions(form.elements.skill_id, [["", "選択してください"], ...skills.map((id) => [id, skillName(id)])], values.skill_id || "");
+  selectOptions(form.elements.skill_id, [["", rule.optional.includes("skill_id") ? "指定しない" : "選択してください"],
+    ...skills.map((id) => [id, skillName(id)])], values.skill_id || "");
   const date = form.elements.date;
   date.min = p.start_date;
   date.max = periodDates().at(-1).date;
   date.value = values.date || "";
   form.elements.all_dates.checked = Boolean(values.all_dates);
   form.elements.all_shifts.checked = Boolean(values.all_shifts);
+  form.elements.start_time.value = values.start_time || "";
+  form.elements.end_time.value = values.end_time || "";
+  $("rule-time-help").hidden = type !== "min_time_coverage";
   form.elements.value.value = values.value ?? "";
   form.elements.value.min = rule.min ?? 0;
   form.elements.value.max = rule.max ?? 44640;
@@ -437,7 +455,7 @@ function openRule(values = {}, source = "", id = null) {
   state.ruleRevision = state.plan.revision;
   state.ruleID = id;
   $("rule-dialog-title").textContent = id ? "勤務条件を編集" : "勤務条件を追加";
-  $("rule-type").value = values.type || "min_skill_coverage";
+  $("rule-type").value = values.type || "min_time_coverage";
   ruleFields(values);
   showNotice("rule-source", source && "提案元の入力 ／ " + source);
   dialogError($("rule-form"), "");

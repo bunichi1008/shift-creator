@@ -115,7 +115,7 @@ func TestOpenAIProposalAcceptsSeveralRulesAndPreservesScope(t *testing.T) {
 		{Type: "min_skill_coverage", Date: "2026-12-12", AllShifts: true, SkillID: "leader", Value: &two},
 		{Type: "min_coverage", Date: "2026-12-12", ShiftID: "night", Value: &four},
 	}
-	checked, err := checkedProposal(p, "12月12日にリーダーを常に2人、夜勤は最低4人", Proposal{Status: "proposal", Rules: rules})
+	checked, err := checkedProposal(p, "12月12日の全勤務枠にリーダー2人、夜勤は最低4人", Proposal{Status: "proposal", Rules: rules})
 	if err != nil || checked.Status != "proposal" || checked.Rule != nil || len(checked.Rules) != 2 || !checked.Rules[0].AllShifts {
 		t.Fatalf("scoped conditions were not preserved: %+v, %v", checked, err)
 	}
@@ -123,6 +123,30 @@ func TestOpenAIProposalAcceptsSeveralRulesAndPreservesScope(t *testing.T) {
 	checked, err = checkedProposal(p, "複数の勤務条件", Proposal{Status: "proposal", Rules: rules})
 	if err != nil || checked.Status != "clarify" || len(checked.Rules) != 0 || !strings.Contains(checked.Question, "2件目") {
 		t.Fatalf("invalid condition should hold the entire proposal: %+v, %v", checked, err)
+	}
+}
+
+func TestTimeCoverageProposalValidatesRangeAndScope(t *testing.T) {
+	p, err := demoFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := 2
+	rule := Rule{Type: "min_time_coverage", AllDates: true, SkillID: "leader",
+		StartTime: "22:00", EndTime: "06:00", Value: &value}
+	const phrase = "毎日22時から翌6時にリーダーを最低2人"
+	proposal, err := checkedProposal(p, phrase, Proposal{Status: "proposal", Rule: &rule})
+	if err != nil || proposal.Status != "proposal" || proposal.Rule == nil || *proposal.Rule != rule {
+		t.Fatalf("unexpected time coverage proposal: %+v, %v", proposal, err)
+	}
+	rule.EndTime = "24:00"
+	if err := p.checkRule(rule); err == nil {
+		t.Fatal("invalid clock time was accepted")
+	}
+	rule.EndTime = "06:00"
+	rule.ShiftID = "night"
+	if err := p.checkRule(rule); err == nil {
+		t.Fatal("a time coverage rule must not be tied to one shift")
 	}
 }
 

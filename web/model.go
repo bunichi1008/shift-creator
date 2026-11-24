@@ -115,8 +115,11 @@ func (p Problem) checkRule(rule Rule) error {
 	valueLabel := "数値"
 	coverage := rule.Type == "min_skill_coverage" || rule.Type == "min_coverage"
 	timeCoverage := rule.Type == "min_time_coverage"
-	if (!coverage && rule.AllShifts) || (!coverage && !timeCoverage && rule.AllDates) {
-		return inputError("全日・全勤務枠の指定は配置人数の条件で使えます")
+	if rule.AllShifts && !coverage {
+		return inputError("全勤務枠の指定は勤務別の人数条件で使えます")
+	}
+	if rule.AllDates && !coverage && !timeCoverage {
+		return inputError("全日の指定は人数条件で使えます")
 	}
 	switch rule.Type {
 	case "min_skill_coverage", "min_coverage":

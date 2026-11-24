@@ -116,6 +116,7 @@ function openSettings() {
     : el("p", "登録済みの勤務希望がありません。", "meta"));
 
   const fields = settingsForm.elements;
+  fields.use_shift_coverage.checked = problem.use_shift_coverage ?? true;
   fields.max_consecutive.value = problem.limits.max_consecutive;
   fields.min_rest_minutes.value = problem.limits.min_rest_minutes;
   fields.no_next_day_after_night.checked = problem.limits.no_next_day_after_night;
@@ -192,6 +193,7 @@ function applySettings(draft) {
     .filter(({ min }) => min.value !== "")
     .map(({ date, shift_id, min, max }) => ({ date, shift_id, minimum: min.valueAsNumber, maximum: max.valueAsNumber })));
   const fields = settingsForm.elements;
+  problem.use_shift_coverage = fields.use_shift_coverage.checked;
   problem.limits = {
     max_consecutive: fields.max_consecutive.valueAsNumber, min_rest_minutes: fields.min_rest_minutes.valueAsNumber,
     night_shift_id: fields.night_shift_id.value, no_next_day_after_night: fields.no_next_day_after_night.checked,

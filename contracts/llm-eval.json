@@ -17,6 +17,8 @@
     {"type": "min_coverage", "date": "2026-12-12", "shift_id": "night", "value": 2},
     {"type": "min_coverage", "date": "2026-12-13", "shift_id": "early", "value": 3}
   ]},
-  {"text": "12月12日にリーダーを常に2人", "rule": {"type": "min_skill_coverage", "date": "2026-12-12", "all_shifts": true, "skill_id": "leader", "value": 2}},
+  {"text": "12月12日にリーダーを常に2人", "rule": {"type": "min_time_coverage", "date": "2026-12-12", "start_time": "00:00", "end_time": "00:00", "skill_id": "leader", "value": 2}},
+  {"text": "毎日14時から17時まで、最低6人", "rule": {"type": "min_time_coverage", "all_dates": true, "start_time": "14:00", "end_time": "17:00", "value": 6}},
+  {"text": "12月12日の各勤務枠にリーダーを最低2人", "rule": {"type": "min_skill_coverage", "date": "2026-12-12", "all_shifts": true, "skill_id": "leader", "value": 2}},
   {"text": "毎日、夜勤にリーダーを最低1人", "rule": {"type": "min_skill_coverage", "all_dates": true, "shift_id": "night", "skill_id": "leader", "value": 1}}
 ]
