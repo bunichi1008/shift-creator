@@ -144,6 +144,28 @@ func TestRuleChecksAndImportDoesNotCommitInvalidInput(t *testing.T) {
 	}
 }
 
+func TestRulesAreSavedTogetherInOneRevision(t *testing.T) {
+	s, _ := testServer(t)
+	h := s.handler()
+	two, four := 2, 4
+	rules := []Rule{
+		{Type: "min_skill_coverage", Date: "2026-12-12", AllShifts: true, SkillID: "leader", Value: &two},
+		{Type: "min_coverage", Date: "2026-12-12", ShiftID: "wrong", Value: &four},
+	}
+	payload := map[string]any{"revision": 1, "rules": rules}
+	request(t, h, "POST", "/api/plan/rules", payload, 422, nil)
+	plan, _, err := readPlan(context.Background(), s.store)
+	if err != nil || plan.Revision != 1 || len(plan.Problem.Rules) != len(s.demo.Rules) {
+		t.Fatalf("failed batch changed the plan: %+v, %v", plan, err)
+	}
+	rules[1].ShiftID = "night"
+	request(t, h, "POST", "/api/plan/rules", payload, 201, &plan)
+	stored := plan.Problem.Rules[len(s.demo.Rules):]
+	if plan.Revision != 2 || len(stored) != 2 || !stored[0].AllShifts || stored[0].ID == "" || stored[0].ID == stored[1].ID {
+		t.Fatalf("batch was not saved as expected: revision %d, %+v", plan.Revision, stored)
+	}
+}
+
 func TestAdminOriginAndTaskAuthentication(t *testing.T) {
 	s, _ := testServer(t)
 	s.adminToken, s.taskToken = "test-admin", "test-task"

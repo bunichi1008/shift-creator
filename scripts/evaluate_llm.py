@@ -5,10 +5,15 @@ import json
 import os
 import statistics
 import time
+from collections import Counter
 from pathlib import Path
 from urllib.request import Request, urlopen
 
 DATASET = Path(__file__).resolve().parents[1] / "contracts" / "llm-eval.json"
+
+
+def rule_counts(rules):
+    return Counter(json.dumps(rule, sort_keys=True) for rule in rules)
 
 
 def main():
@@ -41,10 +46,11 @@ def main():
         started = time.perf_counter()
         response = call("/api/plan/proposals", {"revision": plan["revision"], "text": case["text"]})
         latencies.append(round((time.perf_counter() - started) * 1000))
-        actual = response.get("rule")
-        if expected := case.get("rule"):
+        actual = response.get("rules") or ([response["rule"]] if response.get("rule") else [])
+        expected = case.get("rules") or ([case["rule"]] if case.get("rule") else [])
+        if expected:
             expected_rules += 1
-            correct = response["status"] == "proposal" and actual == expected
+            correct = response["status"] == "proposal" and rule_counts(actual) == rule_counts(expected)
             exact += correct
             wrong_proposals += response["status"] == "proposal" and not correct
         else:
@@ -53,7 +59,7 @@ def main():
             clarified += correct
             wrong_proposals += response["status"] == "proposal"
         if not correct:
-            print(json.dumps({"case": index, "expected": case.get("rule"), "actual": actual,
+            print(json.dumps({"case": index, "expected": expected, "actual": actual,
                               "status": response["status"]}, ensure_ascii=False))
     print(json.dumps({
         "exact_rule_matches": f"{exact}/{expected_rules}",

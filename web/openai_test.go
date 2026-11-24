@@ -35,10 +35,10 @@ func TestOpenAIProposalUsesStructuredResponseAndValidatesIDs(t *testing.T) {
 		}
 		output, _ := json.Marshal(map[string]any{
 			"status": "proposal", "question": nil, "source": phrase,
-			"rule": map[string]any{
+			"rules": []map[string]any{{
 				"type": "min_skill_coverage", "date": "2026-12-12", "shift_id": "night",
-				"skill_id": "leader", "employee_id": nil, "value": 1,
-			},
+				"skill_id": "leader", "employee_id": nil, "value": 1, "all_dates": false, "all_shifts": false,
+			}},
 		})
 		jsonResponse(w, 200, map[string]any{
 			"status": "completed", "output": []any{map[string]any{
@@ -102,6 +102,27 @@ func TestRuleValidationReportsMissingAndUnexpectedFields(t *testing.T) {
 	value := 2
 	if err := p.checkRule(Rule{Type: "fixed", Date: "2026-12-12", ShiftID: "off", EmployeeID: p.Employees[0].ID, Value: &value}); err == nil || err.Error() != "この種類の条件では数値の指定を外してください" {
 		t.Fatalf("wrong error for unexpected fixed rule field: %v", err)
+	}
+}
+
+func TestOpenAIProposalAcceptsSeveralRulesAndPreservesScope(t *testing.T) {
+	p, err := demoFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, four := 2, 4
+	rules := []Rule{
+		{Type: "min_skill_coverage", Date: "2026-12-12", AllShifts: true, SkillID: "leader", Value: &two},
+		{Type: "min_coverage", Date: "2026-12-12", ShiftID: "night", Value: &four},
+	}
+	checked, err := checkedProposal(p, "12月12日にリーダーを常に2人、夜勤は最低4人", Proposal{Status: "proposal", Rules: rules})
+	if err != nil || checked.Status != "proposal" || checked.Rule != nil || len(checked.Rules) != 2 || !checked.Rules[0].AllShifts {
+		t.Fatalf("scoped conditions were not preserved: %+v, %v", checked, err)
+	}
+	rules[1].AllShifts = true
+	checked, err = checkedProposal(p, "複数の勤務条件", Proposal{Status: "proposal", Rules: rules})
+	if err != nil || checked.Status != "clarify" || len(checked.Rules) != 0 || !strings.Contains(checked.Question, "2件目") {
+		t.Fatalf("invalid condition should hold the entire proposal: %+v, %v", checked, err)
 	}
 }
 

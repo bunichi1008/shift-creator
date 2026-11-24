@@ -57,7 +57,7 @@
       </section>
       <section class="card padded" aria-labelledby="ai-title">
         <h2 id="ai-title">日本語から条件を提案</h2>
-        <p class="meta" id="ai-help">人数の条件には日付と勤務枠を入れてください。提案を確認してから登録できます。</p>
+        <p class="meta" id="ai-help">複数の条件や全勤務枠への指定をまとめて入力できます。</p>
         <form id="ai-form">
           <label class="sr-only" for="ai-input">日本語の勤務条件</label>
           <textarea id="ai-input" rows="3" maxlength="500" placeholder="12月12日の夜勤にリーダーを最低1人" required></textarea>
@@ -111,14 +111,28 @@
     </label>
     <div class="form-grid">
       <label data-field="date">日付<input type="date" name="date"></label>
+      <label class="check" data-field="all_dates"><input type="checkbox" name="all_dates">期間中の毎日</label>
       <label data-field="employee_id">職員<select name="employee_id"></select></label>
       <label data-field="shift_id">勤務種別<select name="shift_id"></select></label>
+      <label class="check" data-field="all_shifts"><input type="checkbox" name="all_shifts">全勤務枠</label>
       <label data-field="skill_id">資格<select name="skill_id"></select></label>
       <label data-field="value" id="value-label"><span>数値</span><input type="number" name="value" min="0" max="44640" step="1"></label>
     </div>
     <div class="dialog-actions">
       <button type="button" data-close>キャンセル</button>
       <button type="submit" class="primary">条件を確定</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="proposal-dialog">
+  <form id="proposal-form">
+    <h2>勤務条件の提案</h2>
+    <p class="notice subtle" id="proposal-source"></p>
+    <ol id="proposal-rules"></ol>
+    <div class="dialog-actions">
+      <button type="button" data-close>キャンセル</button>
+      <button type="submit" class="primary">まとめて追加</button>
     </div>
   </form>
 </dialog>

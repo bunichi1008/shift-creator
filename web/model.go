@@ -8,6 +8,7 @@ import (
 )
 
 const schemaVersion = 1
+const maxPlanRules = 120
 
 type Employee struct {
 	ID            string   `json:"id"`
@@ -164,6 +165,24 @@ func (p Problem) checkRule(rule Rule) error {
 	}
 	if rule.Value != nil && (*rule.Value < min || *rule.Value > max) {
 		return inputError(fmt.Sprintf("数値は %d〜%d の範囲で指定してください", min, max))
+	}
+	return nil
+}
+
+func (p Problem) checkRuleBatch(rules []Rule) error {
+	if len(rules) == 0 {
+		return inputError("追加する勤務条件を指定してください")
+	}
+	if len(p.Rules)+len(rules) > maxPlanRules {
+		return inputError(fmt.Sprintf("条件の数は%d件までです", maxPlanRules))
+	}
+	for index, rule := range rules {
+		if err := p.checkRule(rule); err != nil {
+			if len(rules) == 1 {
+				return err
+			}
+			return inputError(fmt.Sprintf("%d件目は、%s", index+1, err))
+		}
 	}
 	return nil
 }

@@ -4,11 +4,12 @@ const $ = (id) => document.getElementById(id);
 const state = {
   plan: null, jobs: [], active: null, liveReport: null, poll: 0,
   ruleRevision: 0, cell: null, submitKey: null,
+  proposalRules: [],
 };
 
 const ruleTypes = {
-  min_skill_coverage: { label: "資格者の最低人数", required: ["date", "shift_id", "skill_id", "value"], optional: [], valueLabel: "最低人数", min: 1, max: 100 },
-  min_coverage: { label: "勤務枠の最低人数", required: ["date", "shift_id", "value"], optional: [], valueLabel: "最低人数", min: 1, max: 100 },
+  min_skill_coverage: { label: "資格者の最低人数", required: ["date", "shift_id", "skill_id", "value"], optional: ["all_dates", "all_shifts"], valueLabel: "最低人数", min: 1, max: 100 },
+  min_coverage: { label: "勤務枠の最低人数", required: ["date", "shift_id", "value"], optional: ["all_dates", "all_shifts"], valueLabel: "最低人数", min: 1, max: 100 },
   unavailable: { label: "勤務不可", required: ["date", "employee_id"], optional: ["shift_id"] },
   fixed: { label: "勤務・休みを固定", required: ["date", "employee_id", "shift_id"], optional: [] },
   max_consecutive: { label: "連勤の上限", required: ["value"], optional: ["employee_id"], valueLabel: "上限日数", min: 1, max: 31 },
@@ -122,7 +123,7 @@ async function refreshPlan() {
   const form = $("ai-form");
   form.querySelectorAll("textarea, button").forEach((input) => { input.disabled = !data.has_llm; });
   $("ai-help").textContent = data.has_llm
-    ? "人数の条件には日付と勤務枠を入れてください。提案を確認してから登録できます。"
+    ? "複数の条件や全勤務枠への指定をまとめて入力できます。"
     : "OpenAI API を設定すると利用できます。勤務条件はフォームから追加できます。";
   setPlan(data.plan);
 }
@@ -212,8 +213,9 @@ function renderSchedule(days, assignments, preview) {
 }
 
 function describeRule(rule) {
-  const subject = [rule.date?.slice(5).replace("-", "/"), rule.employee_id && personName(rule.employee_id),
-    rule.shift_id && shiftName(rule.shift_id), rule.skill_id && skillName(rule.skill_id)]
+  const subject = [rule.all_dates ? "期間中の毎日" : rule.date?.slice(5).replace("-", "/"),
+    rule.employee_id && personName(rule.employee_id),
+    rule.all_shifts ? "全勤務枠" : rule.shift_id && shiftName(rule.shift_id), rule.skill_id && skillName(rule.skill_id)]
     .filter(Boolean).join("・");
   const constraint = {
     min_skill_coverage: "最低 " + rule.value + " 名",
@@ -397,6 +399,8 @@ function ruleFields(values = {}) {
   date.min = p.start_date;
   date.max = periodDates().at(-1).date;
   date.value = values.date || "";
+  form.elements.all_dates.checked = Boolean(values.all_dates);
+  form.elements.all_shifts.checked = Boolean(values.all_shifts);
   form.elements.value.value = values.value ?? "";
   form.elements.value.min = rule.min ?? 0;
   form.elements.value.max = rule.max ?? 44640;
@@ -408,6 +412,18 @@ function ruleFields(values = {}) {
     input.disabled = label.hidden;
     input.required = rule.required.includes(key);
   }
+  syncRuleScope();
+}
+
+function syncRuleScope() {
+  const form = $("rule-form");
+  const rule = ruleTypes[$("rule-type").value];
+  for (const [field, scope] of [["date", "all_dates"], ["shift_id", "all_shifts"]]) {
+    const input = form.elements[field];
+    const all = rule.optional.includes(scope) && form.elements[scope].checked;
+    input.disabled = all || input.closest("[data-field]").hidden;
+    input.required = !all && rule.required.includes(field);
+  }
 }
 
 function openRule(values = {}, source = "") {
@@ -417,6 +433,15 @@ function openRule(values = {}, source = "") {
   showNotice("rule-source", source && "提案元の入力 ／ " + source);
   dialogError($("rule-form"), "");
   $("rule-dialog").showModal();
+}
+
+function openRuleBatch(rules, source) {
+  state.ruleRevision = state.plan.revision;
+  state.proposalRules = rules;
+  $("proposal-source").textContent = source;
+  $("proposal-rules").replaceChildren(...rules.map((rule) => el("li", describeRule(rule))));
+  dialogError($("proposal-form"), "");
+  $("proposal-dialog").showModal();
 }
 
 const importHeaders = {
@@ -484,6 +509,9 @@ $("cell-form").addEventListener("submit", (event) => {
 
 $("open-rule").addEventListener("click", () => openRule());
 $("rule-type").addEventListener("change", () => ruleFields());
+for (const field of ["all_dates", "all_shifts"]) {
+  $("rule-form").elements[field].addEventListener("change", syncRuleScope);
+}
 $("rule-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -491,10 +519,24 @@ $("rule-form").addEventListener("submit", (event) => {
     const data = Object.fromEntries(new FormData(form));
     const rule = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== ""));
     if ("value" in rule) rule.value = Number(rule.value);
+    if ("all_dates" in rule) rule.all_dates = true;
+    if ("all_shifts" in rule) rule.all_shifts = true;
     const plan = await api("/api/plan/rules", { method: "POST", body: { revision: state.ruleRevision, rule } });
     $("rule-dialog").close();
     setPlan(plan);
     showNotice("message", "勤務条件を追加しました。");
+  }, form);
+});
+
+$("proposal-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  runAction(event.submitter, async () => {
+    const rules = state.proposalRules;
+    const plan = await api("/api/plan/rules", { method: "POST", body: { revision: state.ruleRevision, rules } });
+    $("proposal-dialog").close();
+    setPlan(plan);
+    showNotice("message", "勤務条件を" + rules.length + "件追加しました。");
   }, form);
 });
 
@@ -506,8 +548,14 @@ $("ai-form").addEventListener("submit", (event) => {
     const text = $("ai-input").value;
     const proposal = await api("/api/plan/proposals", { method: "POST", body: { revision, text } });
     if (revision !== state.plan.revision) throw new Error("入力版が変わりました。条件を再提案してください。");
-    if (proposal.status === "clarify") showNotice("ai-feedback", proposal.question);
-    else openRule(proposal.rule, proposal.source || text);
+    if (proposal.status === "clarify") {
+      showNotice("ai-feedback", proposal.question);
+      return;
+    }
+    const rules = proposal.rules || (proposal.rule ? [proposal.rule] : []);
+    if (rules.length === 1) openRule(rules[0], proposal.source || text);
+    else if (rules.length > 1) openRuleBatch(rules, proposal.source || text);
+    else throw new Error("登録できる条件案を取得できませんでした。");
   });
 });
 

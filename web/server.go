@@ -44,6 +44,7 @@ type Proposal struct {
 	Question string `json:"question,omitempty"`
 	Source   string `json:"source,omitempty"`
 	Rule     *Rule  `json:"rule,omitempty"`
+	Rules    []Rule `json:"rules,omitempty"`
 }
 
 func (s *server) handler() http.Handler {
@@ -264,23 +265,30 @@ func randomID() (string, error) {
 
 func (s *server) addRule(w http.ResponseWriter, r *http.Request) {
 	type request struct {
-		Revision int  `json:"revision"`
-		Rule     Rule `json:"rule"`
+		Revision int    `json:"revision"`
+		Rule     *Rule  `json:"rule"`
+		Rules    []Rule `json:"rules"`
 	}
 	handleJSON(w, r, 201, func(body request) (any, error) {
 		return s.updatePlan(r.Context(), body.Revision, func(p *Problem) error {
-			if len(p.Rules) >= 120 {
-				return inputError("条件の数は120件までです")
+			rules := body.Rules
+			if body.Rule != nil {
+				if body.Rules != nil {
+					return inputError("条件を指定する形式を1つ選んでください")
+				}
+				rules = []Rule{*body.Rule}
 			}
-			if err := p.checkRule(body.Rule); err != nil {
+			if err := p.checkRuleBatch(rules); err != nil {
 				return err
 			}
-			id, err := randomID()
-			if err != nil {
-				return err
+			for index := range rules {
+				id, err := randomID()
+				if err != nil {
+					return err
+				}
+				rules[index].ID = id
 			}
-			body.Rule.ID = id
-			p.Rules = append(p.Rules, body.Rule)
+			p.Rules = append(p.Rules, rules...)
 			return nil
 		})
 	})
