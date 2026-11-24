@@ -208,6 +208,9 @@ function renderSchedule(days, assignments, preview) {
   const legend = p.shifts.map((shift) => {
     const chip = el("span", shift.name, "shift");
     chip.dataset.tone = colors.get(shift.id);
+    const breaks = (shift.breaks || []).map(({ start, end }) => describeTimeWindow(start, end));
+    chip.title = [describeTimeWindow(shift.start, shift.end), "実働 " + shift.paid_minutes + " 分",
+      breaks.length ? "休憩 " + breaks.join("、") : ""].filter(Boolean).join(" ／ ");
     return chip;
   });
   $("legend").replaceChildren(...legend, el("span", "休み", "shift"), el("span", "固定", "shift locked"));

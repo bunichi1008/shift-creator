@@ -6,6 +6,7 @@
   <title>Shift Creator · 勤務表</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/app.js" defer></script>
+  <script src="/settings-shifts.js" defer></script>
   <script src="/settings.js" defer></script>
 </head>
 <body>
@@ -154,7 +155,8 @@
       <button type="button" data-settings-tab="optimization">勤務ルール・最適化</button>
     </div>
     <section data-settings-panel="shifts" aria-label="勤務種別">
-      <div class="settings-table" id="settings-shifts"></div>
+      <div id="settings-shifts" class="shift-editors"></div>
+      <button type="button" id="settings-add-shift">勤務種別を追加</button>
     </section>
     <section data-settings-panel="coverage" aria-label="必要人数" hidden>
       <p class="meta">同じ時間に勤務している人数の下限は「条件を追加」の「時間帯の最低人数」で設定します。</p>

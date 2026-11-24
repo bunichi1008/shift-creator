@@ -50,22 +50,19 @@ function settingsTable(headings, rows) {
   return table;
 }
 
-function coverageEditors(problem) {
-  const current = new Map((problem.coverage || []).map((row) => [row.date + "/" + row.shift_id, row]));
-  return problem.shifts.map((shift) => {
-    const fields = periodDates().map(({ date }) => {
-      const existing = current.get(date + "/" + shift.id);
-      const options = { min: 0, max: 100, required: false };
-      return {
-        date, shift_id: shift.id,
-        min: settingsInput(date + " " + shift.name + "の最低人数", existing?.minimum, options),
-        max: settingsInput(date + " " + shift.name + "の最大人数", existing?.maximum, options),
-      };
-    });
-    const table = settingsTable(["日付", "最低人数", "最大人数"],
-      fields.map((field) => [field.date, field.min, field.max]));
-    return { id: shift.id, fields, table };
+function coverageEditor(shift, current = new Map()) {
+  const fields = periodDates().map(({ date }) => {
+    const existing = current.get(date + "/" + shift.id);
+    const options = { min: 0, max: 100, required: false };
+    return {
+      date, shift_id: shift.id,
+      min: settingsInput(date + " " + shift.name + "の最低人数", existing?.minimum, options),
+      max: settingsInput(date + " " + shift.name + "の最大人数", existing?.maximum, options),
+    };
   });
+  const table = settingsTable(["日付", "最低人数", "最大人数"],
+    fields.map((field) => [field.date, field.min, field.max]));
+  return { id: shift.id, fields, table };
 }
 
 function selectCoverageEditor(id) {
@@ -78,19 +75,13 @@ function selectCoverageEditor(id) {
 
 function openSettings() {
   const problem = structuredClone(state.plan.problem);
-  const shiftFields = problem.shifts.map((shift) => ({
-    shift,
-    start: settingsInput(shift.name + "の開始時刻", shift.start, { type: "time" }),
-    end: settingsInput(shift.name + "の終了時刻", shift.end, { type: "time" }),
-    paid: settingsInput(shift.name + "の実働（分）", shift.paid_minutes, { min: 1, max: 1440 }),
-  }));
-  $("settings-shifts").replaceChildren(settingsTable(["勤務", "開始", "終了", "実働（分）"],
-    shiftFields.map((item) => [item.shift.name, item.start, item.end, item.paid])));
+  preserveHistoricalShifts(problem);
+  const shiftFields = problem.shifts.map((shift, index) => shiftEditor(shift, { open: index === 0 }));
+  $("settings-shifts").replaceChildren(...shiftFields.map(({ details }) => details));
 
-  const coverage = coverageEditors(problem);
+  const current = new Map((problem.coverage || []).map((row) => [row.date + "/" + row.shift_id, row]));
+  const coverage = problem.shifts.map((shift) => coverageEditor(shift, current));
   $("settings-coverage").replaceChildren(...coverage.map((item) => item.table));
-  const shiftOptions = problem.shifts.map((shift) => [shift.id, shift.name]);
-  selectOptions($("settings-coverage-shift"), shiftOptions);
 
   const minuteOptions = { min: 0, max: 44640 };
   const staff = problem.employees.map((employee) => ({
@@ -107,20 +98,11 @@ function openSettings() {
     weight: settingsInput(personName(preference.employee_id) + " " + preference.date + "の希望の重み",
       preference.weight, { min: 1, max: 100 }),
   }));
-  const preferenceRows = preferences.map(({ preference, weight }) => [
-    personName(preference.employee_id), preference.date,
-    preference.kind === "prefer_off" ? "休み希望" : shiftName(preference.shift_id) + "希望", weight,
-  ]);
-  $("settings-preferences").replaceChildren(preferenceRows.length
-    ? settingsTable(["職員", "日付", "希望", "重み"], preferenceRows)
-    : el("p", "登録済みの勤務希望がありません。", "meta"));
-
   const fields = settingsForm.elements;
   fields.use_shift_coverage.checked = problem.use_shift_coverage ?? true;
   fields.max_consecutive.value = problem.limits.max_consecutive;
   fields.min_rest_minutes.value = problem.limits.min_rest_minutes;
   fields.no_next_day_after_night.checked = problem.limits.no_next_day_after_night;
-  selectOptions(fields.night_shift_id, [["", "指定しない"], ...shiftOptions], problem.limits.night_shift_id || "");
   const order = [...(problem.optimization?.order || Object.keys(objectiveLabels))];
   fields.night_deviation_weight.value = problem.optimization?.night_deviation_weight ?? 480;
   const priorities = order.map((value, index) => {
@@ -139,10 +121,96 @@ function openSettings() {
   });
   $("settings-objective-order").replaceChildren(...priorities.map(({ label }) => label));
   settingsDraft = { revision: state.plan.revision, problem, shiftFields, coverage, staff, preferences, order };
-  selectCoverageEditor(problem.shifts[0].id);
+  refreshSettingsShiftOptions(problem.shifts[0].id, problem.limits.night_shift_id || "");
   showSettingsPanel("shifts");
   dialogError(settingsForm, "");
   $("settings-dialog").showModal();
+}
+
+function refreshSettingsShiftOptions(coverageID = $("settings-coverage-shift").value,
+  nightID = settingsForm.elements.night_shift_id.value) {
+  const { shiftFields, coverage, preferences } = settingsDraft;
+  const options = shiftFields.map(({ shift, name }) => [shift.id, name.value.trim() || "新しい勤務"]);
+  const names = new Map(options);
+  const coverageSelect = $("settings-coverage-shift");
+  selectOptions(coverageSelect, options, coverageID);
+  selectCoverageEditor(coverageSelect.value);
+  selectOptions(settingsForm.elements.night_shift_id, [["", "指定しない"], ...options], nightID);
+  $("settings-add-shift").disabled = shiftFields.length >= maxShiftTypes;
+  for (const field of shiftFields) field.remove.disabled = shiftFields.length <= 1;
+  for (const group of coverage) {
+    for (const { date, min, max } of group.fields) {
+      min.setAttribute("aria-label", date + " " + names.get(group.id) + "の最低人数");
+      max.setAttribute("aria-label", date + " " + names.get(group.id) + "の最大人数");
+    }
+  }
+  const rows = preferences.map(({ preference, weight }) => [
+    personName(preference.employee_id), preference.date,
+    preference.kind === "prefer_off" ? "休み希望" : names.get(preference.shift_id) + "希望", weight,
+  ]);
+  $("settings-preferences").replaceChildren(rows.length
+    ? settingsTable(["職員", "日付", "希望", "重み"], rows)
+    : el("p", "登録済みの勤務希望がありません。", "meta"));
+}
+
+function addSettingsShift() {
+  const draft = settingsDraft;
+  if (draft.shiftFields.length >= maxShiftTypes) return;
+  const shift = { id: "shift-" + crypto.randomUUID(), name: "", start: "09:00", end: "17:00", paid_minutes: 480 };
+  const editor = shiftEditor(shift, { open: true, isNew: true });
+  const coverage = coverageEditor(shift);
+  draft.shiftFields.push(editor);
+  draft.coverage.push(coverage);
+  $("settings-shifts").append(editor.details);
+  $("settings-coverage").append(coverage.table);
+  refreshSettingsShiftOptions(shift.id);
+  editor.name.focus();
+}
+
+function removeSettingsShift(editor, confirmed = false) {
+  const draft = settingsDraft;
+  if (draft.shiftFields.length <= 1) return;
+  const id = editor.shift.id;
+  const refersToShift = (row) => row.shift_id === id;
+  const group = draft.coverage.find((item) => item.id === id);
+  const related = [
+    ["勤務別の人数枠", group.fields.filter(({ min, max }) => min.value || max.value).length],
+    ["勤務希望・勤務不可", (draft.problem.preferences || []).filter(refersToShift).length],
+    ["勤務条件", (draft.problem.rules || []).filter(refersToShift).length],
+    ["勤務案", (draft.problem.baseline || []).filter(refersToShift).length],
+    ["固定セル", (draft.problem.locks || []).filter(refersToShift).length],
+  ].filter(([, count]) => count > 0).map(([label, count]) => label + " " + count + "件");
+  const night = settingsForm.elements.night_shift_id.value === id;
+  if (night) related.push("夜勤指定");
+  if (related.length && !confirmed) {
+    const cancel = el("button", "削除を取り消す");
+    const proceed = el("button", "削除する");
+    cancel.type = proceed.type = "button";
+    cancel.addEventListener("click", () => {
+      editor.removeConfirm.hidden = true;
+      editor.remove.focus();
+    });
+    proceed.addEventListener("click", () => removeSettingsShift(editor, true));
+    editor.removeConfirm.replaceChildren(
+      el("p", "保存時に関連する設定も外れます。 " + related.join("、")),
+      cancel, proceed,
+    );
+    editor.removeConfirm.hidden = false;
+    cancel.focus();
+    return;
+  }
+
+  for (const key of ["preferences", "rules", "baseline", "locks"]) {
+    draft.problem[key] = (draft.problem[key] || []).filter((row) => !refersToShift(row));
+  }
+  draft.preferences = draft.preferences.filter(({ preference }) => !refersToShift(preference));
+  draft.shiftFields = draft.shiftFields.filter((item) => item !== editor);
+  draft.coverage = draft.coverage.filter((item) => item !== group);
+  if (night) settingsForm.elements.no_next_day_after_night.checked = false;
+  editor.details.remove();
+  group.table.remove();
+  refreshSettingsShiftOptions();
+  $("settings-add-shift").focus();
 }
 
 function timeInMinutes(value) {
@@ -151,10 +219,7 @@ function timeInMinutes(value) {
 }
 
 function validateSettings(draft) {
-  for (const { start, end, paid } of draft.shiftFields) {
-    const duration = (timeInMinutes(end.value) - timeInMinutes(start.value) + 1440) % 1440;
-    paid.setCustomValidity(paid.valueAsNumber > duration ? "実働は開始から終了までの時間以内にしてください。" : "");
-  }
+  for (const editor of draft.shiftFields) refreshShiftEditor(editor);
   for (const { target, max } of draft.staff) {
     target.setCustomValidity(target.valueAsNumber > max.valueAsNumber ? "目標時間は上限以内にしてください。" : "");
   }
@@ -174,15 +239,18 @@ function validateSettings(draft) {
   const group = draft.coverage.find(({ table }) => table.contains(invalid));
   if (group) selectCoverageEditor(group.id);
   showSettingsPanel(invalid.closest("[data-settings-panel]").dataset.settingsPanel);
+  const collapsed = invalid.closest("details");
+  if (collapsed) collapsed.open = true;
   invalid.reportValidity();
   return false;
 }
 
 function applySettings(draft) {
   const { problem } = draft;
-  for (const { shift, start, end, paid } of draft.shiftFields) {
-    Object.assign(shift, { start: start.value, end: end.value, paid_minutes: paid.valueAsNumber });
-  }
+  problem.shifts = draft.shiftFields.map(({ shift, name, start, end, paid, breaks }) => ({
+    ...shift, name: name.value.trim(), start: start.value, end: end.value, paid_minutes: paid.valueAsNumber,
+    breaks: breaks.map((item) => ({ start: item.start.value, end: item.end.value })),
+  }));
   for (const { employee, target, max, nights } of draft.staff) {
     Object.assign(employee, {
       target_minutes: target.valueAsNumber, max_minutes: max.valueAsNumber, target_nights: nights.valueAsNumber,
@@ -202,6 +270,7 @@ function applySettings(draft) {
 }
 
 $("open-settings").addEventListener("click", openSettings);
+$("settings-add-shift").addEventListener("click", addSettingsShift);
 for (const button of settingsForm.querySelectorAll("[data-settings-tab]")) {
   button.addEventListener("click", () => showSettingsPanel(button.dataset.settingsTab));
 }
