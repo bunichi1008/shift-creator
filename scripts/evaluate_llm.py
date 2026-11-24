@@ -60,7 +60,7 @@ def main():
             wrong_proposals += response["status"] == "proposal"
         if not correct:
             print(json.dumps({"case": index, "expected": expected, "actual": actual,
-                              "status": response["status"]}, ensure_ascii=False))
+                              "status": response["status"], "question": response.get("question")}, ensure_ascii=False))
     print(json.dumps({
         "exact_rule_matches": f"{exact}/{expected_rules}",
         "correct_clarifications": f"{clarified}/{expected_clarifications}",

@@ -150,6 +150,58 @@ func TestTimeCoverageProposalValidatesRangeAndScope(t *testing.T) {
 	}
 }
 
+func TestProposalRejectsDatesAndEmployeesTheModelInvented(t *testing.T) {
+	p, err := demoFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	two := 2
+	tests := []struct {
+		phrase string
+		rule   Rule
+		want   string
+	}{
+		{"来月1日の日勤を最低2人にして", Rule{Type: "min_coverage", Date: "2026-12-01", ShiftID: "day", Value: &two}, "clarify"},
+		{"まず夜勤を組んで、日勤は後回し", Rule{Type: "fixed", Date: "2026-12-01", ShiftID: "night", EmployeeID: "e01"}, "clarify"},
+		{"12月17日の石井 凛は休みに固定", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "off", EmployeeID: "e02"}, "proposal"},
+		{"12月17日の石井 凛は休みで固定してください", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "休み", EmployeeID: "e02"}, "proposal"},
+		{"12月17日の石井さんは休みに固定", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "off", EmployeeID: "e02"}, "proposal"},
+		{"12月12日の翌日の日勤を最低2人", Rule{Type: "min_coverage", Date: "2026-12-13", ShiftID: "day", Value: &two}, "proposal"},
+		{"12月12日にリーダーを常に2人", Rule{Type: "min_time_coverage", Date: "2026-12-12", SkillID: "leader", StartTime: "00:00", EndTime: "00:00", AllShifts: true, Value: &two}, "proposal"},
+		{"12月12日の各勤務枠にリーダーを最低2人", Rule{Type: "min_time_coverage", Date: "2026-12-12", SkillID: "leader", StartTime: "00:00", EndTime: "00:00", AllShifts: true, Value: &two}, "clarify"},
+	}
+	for _, test := range tests {
+		t.Run(test.phrase, func(t *testing.T) {
+			result, err := checkedProposal(p, test.phrase, Proposal{Status: "proposal", Rule: &test.rule})
+			if err != nil || result.Status != test.want {
+				t.Fatalf("unexpected proposal: %+v, %v", result, err)
+			}
+		})
+	}
+}
+
+func TestProposalResolvesRedundantScopeAndExplicitSkill(t *testing.T) {
+	p, err := demoFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	four, one := 4, 1
+	first := Rule{Type: "max_consecutive", AllDates: true, Value: &four}
+	got, err := checkedProposal(p, "全員、連勤は4日まで", Proposal{Status: "proposal", Rule: &first})
+	if err != nil || got.Rule == nil || got.Rule.AllDates {
+		t.Fatalf("unexpected consecutive rule: %+v, %v", got, err)
+	}
+	second := Rule{Type: "min_coverage", AllDates: true, ShiftID: "night", SkillID: "leader", Value: &one}
+	got, err = checkedProposal(p, "毎日、夜勤にリーダーを最低1人", Proposal{Status: "proposal", Rule: &second})
+	if err != nil || got.Rule == nil || got.Rule.Type != "min_skill_coverage" {
+		t.Fatalf("unexpected qualification rule: %+v, %v", got, err)
+	}
+	got, err = checkedProposal(p, "毎日、夜勤はリーダーを含めて最低1人", Proposal{Status: "proposal", Rule: &second})
+	if err != nil || got.Status != "clarify" {
+		t.Fatalf("headcount with an ambiguous qualification must be clarified: %+v, %v", got, err)
+	}
+}
+
 type staticProposal struct{}
 
 func (staticProposal) propose(context.Context, Problem, string) (Proposal, error) {
