@@ -1,4 +1,3 @@
-from collections import defaultdict
 from dataclasses import dataclass
 
 import pulp
@@ -41,13 +40,14 @@ def add_coverage(roster: RosterModel, *, relax_minimums: bool = False) -> list[S
         lower_bound(assigned([(day, shift)], rule.skill_id), rule.value,
                     dict(date=day, shift_id=shift, rule_id=rule.id), rule.skill_id)
 
-    history = defaultdict(list)
-    for row in roster.problem.history:
-        history[row.date, row.shift_id].append(row.employee_id)
     for segment in time_staffing_segments(roster.problem):
         skill = segment.rule.skill_id
-        already_on_duty = {employee_id for slot in segment.slots for employee_id in history.get(slot, ())
-                           if eligible(employee_id, skill)}
-        count = assigned(segment.slots, skill) + len(already_on_duty)
+        already_on_duty = {employee_id for employee_id in segment.historical if eligible(employee_id, skill)}
+        on_break = pulp.lpSum(
+            variable for slot in segment.slots
+            for employee_id, start, end, variable in roster.break_schedule.by_slot.get(slot, ())
+            if start <= segment.shift_minute(slot[0]) < end and eligible(employee_id, skill)
+        )
+        count = assigned(segment.slots, skill) + len(already_on_duty) - on_break
         lower_bound(count, segment.rule.value, segment.issue_scope(), skill)
     return shortages

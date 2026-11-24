@@ -51,6 +51,13 @@ func changeCell(p *Problem, cell Assignment, locked bool) error {
 	match := func(other Assignment) bool {
 		return other.EmployeeID == cell.EmployeeID && other.Date == cell.Date
 	}
+	cell.BreakStarts = nil
+	for _, previous := range p.Baseline {
+		if match(previous) && previous.ShiftID == cell.ShiftID {
+			cell.BreakStarts = previous.BreakStarts
+			break
+		}
+	}
 	p.Baseline = slices.DeleteFunc(p.Baseline, match)
 	p.Locks = slices.DeleteFunc(p.Locks, match)
 	if cell.ShiftID != "off" {

@@ -17,6 +17,10 @@ class TimeSegment:
     start: int
     end: int
     slots: tuple[Slot, ...]
+    historical: tuple[str, ...]
+
+    def shift_minute(self, start_date: date) -> int:
+        return self.start + (self.day - start_date).days * MINUTES_PER_DAY
 
     def issue_scope(self) -> dict:
         def clock(minutes: int) -> str:
@@ -43,36 +47,43 @@ def staffing_windows(problem: Problem, rule: Rule) -> Iterator[tuple[date, int, 
 
 
 def time_staffing_segments(problem: Problem) -> Iterator[TimeSegment]:
-    history = {(row.date, row.shift_id) for row in problem.history if row.date == problem.start_date - DAY}
-    historical = problem.historical_shifts
     working_ranges = {shift.id: tuple(shift.working_ranges()) for shift in problem.shifts}
-    historical_ranges = {key: tuple(historical[key].working_ranges()) for _, key in history}
+    flexible_boundaries = {shift.id: {point for group in shift.flexible_break_options()
+                                      for option in group for point in option} for shift in problem.shifts}
+    historical = problem.historical_shifts
+    carry_in = []
+    for row in problem.history:
+        if row.date == problem.start_date - DAY:
+            shift = historical[row.shift_id]
+            ranges = shift.working_ranges(shift.selected_flexible_breaks(row.break_starts))
+            carry_in.extend((row.employee_id, start - MINUTES_PER_DAY, end - MINUTES_PER_DAY)
+                            for start, end in ranges if end > MINUTES_PER_DAY)
 
     @cache
-    def operating_slots(day: date) -> list[tuple[Slot, int, int]]:
+    def operating_slots(day: date):
         slots = []
+        boundaries = set()
         for shift_day, offset in ((day - DAY, -MINUTES_PER_DAY), (day, 0)):
-            if problem.in_period(shift_day):
-                ranges = working_ranges
-            elif shift_day == problem.start_date - DAY:
-                ranges = historical_ranges
-            else:
+            if not problem.in_period(shift_day):
                 continue
-            for shift_id, intervals in ranges.items():
+            for shift_id, intervals in working_ranges.items():
                 for start, end in intervals:
                     if start + offset < MINUTES_PER_DAY and end + offset > 0:
                         slots.append(((shift_day, shift_id), start + offset, end + offset))
-        return slots
+                boundaries.update(point + offset for point in flexible_boundaries[shift_id])
+        history = carry_in if day == problem.start_date else ()
+        boundaries.update(point for _, start, end in [*slots, *history] for point in (start, end))
+        return slots, history, boundaries
 
     for rule in problem.rules:
         if rule.type != "min_time_coverage":
             continue
         for day, start, end in staffing_windows(problem, rule):
-            slots = operating_slots(day)
+            slots, history, points = operating_slots(day)
             # Staffing changes at the boundaries of work and breaks. Include
             # uncovered segments so a staffing gap becomes an infeasibility.
-            boundaries = sorted({start, end} | {minute for _, first, last in slots
-                                                 for minute in (first, last) if start < minute < end})
+            boundaries = sorted({start, end} | {minute for minute in points if start < minute < end})
             for left, right in zip(boundaries, boundaries[1:]):
                 active = tuple(slot for slot, first, last in slots if first <= left and right <= last)
-                yield TimeSegment(rule, day, left, right, active)
+                carried = tuple(key for key, first, last in history if first <= left and right <= last)
+                yield TimeSegment(rule, day, left, right, active, carried)

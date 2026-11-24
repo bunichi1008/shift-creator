@@ -20,8 +20,9 @@ type Employee struct {
 }
 
 type ShiftBreak struct {
-	Start string `json:"start"`
-	End   string `json:"end"`
+	Start       string `json:"start"`
+	End         string `json:"end"`
+	LatestStart string `json:"latest_start,omitempty"`
 }
 
 type Shift struct {
@@ -41,9 +42,10 @@ type Coverage struct {
 }
 
 type Assignment struct {
-	EmployeeID string `json:"employee_id"`
-	Date       string `json:"date"`
-	ShiftID    string `json:"shift_id"`
+	EmployeeID  string   `json:"employee_id"`
+	Date        string   `json:"date"`
+	ShiftID     string   `json:"shift_id"`
+	BreakStarts []string `json:"break_starts,omitempty"`
 }
 
 type Preference struct {

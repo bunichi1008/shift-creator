@@ -56,6 +56,7 @@ class Employee(Record):
 class ShiftBreak(Record):
     start: Clock
     end: Clock
+    latest_start: Clock | None = None
 
 
 class Shift(Record):
@@ -76,7 +77,16 @@ class Shift(Record):
             if first < previous_end or last > end or first == last:
                 raise ValueError(f"breaks in {self.name} must be inside the shift and must not overlap")
             previous_end = last
-        if self.paid_minutes > sum(last - first for first, last in self.working_ranges()):
+        for item in self.breaks:
+            first = self.shift_minute(item.start)
+            last = self.shift_minute(item.latest_start or item.start)
+            duration = (clock_minutes(item.end) - clock_minutes(item.start)) % 1440
+            if not duration or last < first or last + duration > end:
+                raise ValueError(f"breaks in {self.name} must be inside the shift")
+        if any(not choices for choices in self.flexible_break_options()):
+            raise ValueError(f"a flexible break in {self.name} has no start time outside fixed breaks")
+        unpaid = sum((clock_minutes(item.end) - clock_minutes(item.start)) % 1440 for item in self.breaks)
+        if self.paid_minutes > end - start - unpaid:
             raise ValueError(f"paid duration in {self.name} exceeds working time after breaks")
         return self
 
@@ -85,21 +95,49 @@ class Shift(Record):
         return start, start + (clock_minutes(self.end) - start) % 1440
 
     def break_ranges(self) -> list[tuple[int, int]]:
-        start = clock_minutes(self.start)
-        ranges = []
-        for item in self.breaks:
-            first = clock_minutes(item.start)
-            duration = (clock_minutes(item.end) - first) % 1440
-            beginning = start + (first - start) % 1440
-            ranges.append((beginning, beginning + duration))
-        return sorted(ranges)
+        return sorted((self.shift_minute(item.start), self.shift_minute(item.start) +
+                       (clock_minutes(item.end) - clock_minutes(item.start)) % 1440)
+                      for item in self.breaks if item.latest_start is None)
 
-    def working_ranges(self) -> Iterator[tuple[int, int]]:
+    def shift_minute(self, clock: str) -> int:
+        start = clock_minutes(self.start)
+        return start + (clock_minutes(clock) - start) % 1440
+
+    def flexible_break_options(self) -> tuple[tuple[tuple[int, int], ...], ...]:
+        fixed = self.break_ranges()
+        options = []
+        for item in self.breaks:
+            if item.latest_start is None:
+                continue
+            first, latest = self.shift_minute(item.start), self.shift_minute(item.latest_start)
+            length = (clock_minutes(item.end) - clock_minutes(item.start)) % 1440
+            starts = sorted(set(range(first, latest + 1, 5)) | {latest})
+            options.append(tuple((start, start + length) for start in starts
+                                 if not any(start < right and left < start + length for left, right in fixed)))
+        return tuple(options)
+
+    def selected_flexible_breaks(self, starts: list[str] | None) -> tuple[tuple[int, int], ...] | None:
+        options = self.flexible_break_options()
+        if len(starts or []) != len(options):
+            return None
+        selected = []
+        for clock, choices in zip(starts or [], options):
+            start = self.shift_minute(clock)
+            match = next((choice for choice in choices if choice[0] == start), None)
+            if match is None:
+                return None
+            selected.append(match)
+        ordered = sorted(selected)
+        if any(left[1] > right[0] for left, right in zip(ordered, ordered[1:])):
+            return None
+        return tuple(selected)
+
+    def working_ranges(self, flexible: tuple[tuple[int, int], ...] = ()) -> Iterator[tuple[int, int]]:
         first, end = self.clock_range()
-        for break_start, break_end in self.break_ranges():
+        for break_start, break_end in sorted([*self.break_ranges(), *flexible]):
             if first < break_start:
                 yield first, break_start
-            first = break_end
+            first = max(first, break_end)
         if first < end:
             yield first, end
 
@@ -120,6 +158,7 @@ class Assignment(Record):
     employee_id: ID
     date: CalendarDate
     shift_id: ID
+    break_starts: list[Clock] | None = Field(default=None, max_length=12)
 
     @property
     def cell(self) -> Cell:
@@ -241,6 +280,8 @@ class Problem(Record):
                 )
                 if row.employee_id not in employees or not usable_shift or not usable_date:
                     raise ValueError(f"unknown employee, shift or date in {field}: {row.cell}")
+                if field == "history" and historical[row.shift_id].selected_flexible_breaks(row.break_starts) is None:
+                    raise ValueError(f"history requires actual flexible break times: {row.cell}")
         check_unique([r.id for r in self.rules], "rule ID")
         for rule in self.rules:
             self.check_rule(rule, employees, shifts, skills)

@@ -33,9 +33,9 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
     assigned: dict[Cell, str] = {}
     by_employee: dict[str, list[Assignment]] = defaultdict(list)
     by_slot: dict[tuple[date, str], list[str]] = defaultdict(list)
+    selected_breaks = {}
     for row in problem.history:
         by_employee[row.employee_id].append(row)
-        by_slot[row.date, row.shift_id].append(row.employee_id)
     for row in assignments:
         if row.employee_id not in employees or row.shift_id not in shifts or not problem.in_period(row.date):
             cell_issue("invalid_assignment", "職員・日付・勤務枠を確認してください", row)
@@ -46,6 +46,12 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
         assigned[row.cell] = row.shift_id
         by_slot[row.date, row.shift_id].append(row.employee_id)
         by_employee[row.employee_id].append(row)
+        shift = shifts[row.shift_id]
+        selected = shift.selected_flexible_breaks(row.break_starts)
+        if selected is None:
+            cell_issue("break_schedule", "休憩時刻が未確定か設定範囲外です。シフトを再生成してください", row)
+            selected = tuple(window for group in shift.flexible_break_options() for window in group)
+        selected_breaks[row.cell] = selected
 
     covered = 0
     for row in problem.shift_staffing:
@@ -86,8 +92,13 @@ def validate(problem: Problem, assignments: list[Assignment]) -> Report:
     for segment in time_staffing_segments(problem):
         total_time += 1
         rule = segment.rule
-        on_duty = {key for slot in segment.slots for key in by_slot[slot]
-                   if rule.skill_id is None or rule.skill_id in employees[key].skills}
+        on_duty = set(segment.historical)
+        for slot in segment.slots:
+            minute = segment.shift_minute(slot[0])
+            on_duty.update(key for key in by_slot[slot]
+                           if not any(start <= minute < end for start, end in selected_breaks[key, slot[0]]))
+        if rule.skill_id is not None:
+            on_duty = {key for key in on_duty if rule.skill_id in employees[key].skills}
         count = len(on_duty)
         if count >= rule.value:
             covered_time += 1

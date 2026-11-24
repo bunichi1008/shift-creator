@@ -7,6 +7,7 @@ from math import isfinite
 import pulp
 
 from ..models import Assignment, Cell, Problem
+from .breaks import BreakSchedule
 
 
 class RosterModel:
@@ -50,6 +51,7 @@ class RosterModel:
                 self.work[cell] = pulp.lpSum(choices.values())
             self.minutes[employee.id] = pulp.lpSum(minutes)
             self.nights[employee.id] = pulp.lpSum(nights)
+        self.break_schedule = BreakSchedule(self)
 
     def assignment(self, employee_id: str, day: date, shift_id: str) -> pulp.LpVariable | int:
         return self.cells[employee_id, day].get(shift_id, 0)
@@ -67,5 +69,7 @@ class RosterModel:
                 if value is None or not isfinite(value) or min(abs(value), abs(value - 1)) > 1e-5:
                     raise ValueError(f"The solver returned a non-binary value for {variable.name}: {value}")
                 if value > 0.5:
-                    assignments.append(Assignment(employee_id=employee_id, date=day, shift_id=shift_id))
+                    starts = self.break_schedule.chosen_starts(employee_id, day, shift_id)
+                    assignments.append(Assignment(employee_id=employee_id, date=day, shift_id=shift_id,
+                                                  break_starts=starts))
         return sorted(assignments, key=lambda row: (row.date, row.employee_id))

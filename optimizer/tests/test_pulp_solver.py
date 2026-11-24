@@ -142,6 +142,48 @@ class ConstraintTest(unittest.TestCase):
             with self.subTest(breaks=breaks), self.assertRaises(ValidationError):
                 Shift(id="split", name="日勤", start="09:00", end="17:00", paid_minutes=420, breaks=breaks)
 
+    def test_required_coverage_staggers_breaks_for_the_same_shift(self):
+        daytime = Shift(id="day", name="日勤", start="09:00", end="17:00", paid_minutes=450,
+                        breaks=[ShiftBreak(start="12:00", end="12:30", latest_start="12:30")])
+        p = problem(
+            days=1, shifts=[daytime],
+            limits=Limits(max_consecutive=5, min_rest_minutes=0, no_next_day_after_night=False),
+            coverage=[Coverage(date=START, shift_id="day", minimum=2, maximum=2)],
+            rules=[Rule(id="lunch", type="min_time_coverage", date=START, value=1,
+                        start_time="12:00", end_time="13:00")],
+        )
+        solved = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(solved.status, "optimal", solved)
+        self.assertEqual({tuple(row.break_starts) for row in solved.assignments}, {("12:00",), ("12:30",)})
+        self.assertEqual(solved.report.issues, [])
+
+        p.rules = []
+        spread = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual({tuple(row.break_starts) for row in spread.assignments}, {("12:00",), ("12:30",)})
+        self.assertEqual(spread.objective["break_overlap_minutes"], 0)
+        p.rules = [Rule(id="lunch", type="min_time_coverage", date=START, value=1,
+                        start_time="12:00", end_time="13:00")]
+        rows = [row.model_copy(update={"break_starts": ["12:00"]}) for row in solved.assignments]
+        self.assertTrue(any(i.code == "min_time_coverage" for i in validate(p, rows).issues))
+        p.shifts[0].breaks[0].latest_start = None
+        failed = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(failed.status, "infeasible", failed)
+
+    def test_multiple_flexible_breaks_are_mandatory_and_do_not_overlap(self):
+        night = Shift(id="night", name="夜勤", start="20:00", end="05:00", paid_minutes=480,
+                      breaks=[ShiftBreak(start="23:30", end="00:00", latest_start="00:00"),
+                              ShiftBreak(start="23:30", end="00:00", latest_start="00:00")])
+        p = problem(days=1, shifts=[night],
+                    coverage=[Coverage(date=START, shift_id="night", minimum=2, maximum=2)])
+        solved = run_solver(SolveRequest(problem=p, time_limit_seconds=3), solve)
+        self.assertEqual(solved.status, "optimal", solved)
+        for row in solved.assignments:
+            self.assertEqual(set(row.break_starts), {"23:30", "00:00"})
+        self.assertTrue(any(i.code == "break_schedule" for i in validate(p, [
+            solved.assignments[0].model_copy(update={"break_starts": ["00:00", "00:00"]}),
+            solved.assignments[1].model_copy(update={"break_starts": None}),
+        ]).issues))
+
     def test_fixed_shift_for_an_unavailable_employee_is_infeasible(self):
         p = problem(
             preferences=[Preference(employee_id="first", date=START, kind="unavailable", shift_id="day", weight=1)],

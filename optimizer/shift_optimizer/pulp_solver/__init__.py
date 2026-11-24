@@ -21,6 +21,11 @@ FAILED = {
 
 def solve(request: SolveRequest) -> SolveResult:
     deadline = monotonic() + request.time_limit_seconds
+    problem = request.problem
+    break_choices = sum(len(options) for shift in problem.shifts for options in shift.flexible_break_options())
+    if break_choices * problem.days * len(problem.employees) > 250_000:
+        return SolveResult(status="no_solution", solver=SOLVER,
+                           message="休憩の開始候補が多すぎます。休憩の開始時刻の範囲を狭めてください")
     roster = RosterModel(request.problem)
     add_work_rules(roster)
     add_coverage(roster)
