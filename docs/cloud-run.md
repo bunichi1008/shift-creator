@@ -86,7 +86,7 @@ OpenAI を有効にするには、実行サービスアカウントに `shift-op
 
 ## ジョブと費用の確認
 
-- Web のヘルスチェックは `GET /healthz` です。履歴画面で生成が完了したことと、結果の採用ができることを確認します。
+- Web と Optimizer のヘルスチェックは `GET /health` です。Optimizer には Cloud Run のサービス認証が必要です。Cloud Run は末尾が `z` の一部のパスを予約しています。履歴画面で生成が完了したことと、結果の採用ができることを確認します。 [Cloud Run の予約パス](https://docs.cloud.google.com/run/docs/known-issues#reserved-url-paths)
 - タスク登録に失敗したジョブは永続化され、ジョブの照会時に登録を再試行します。ログに配送待ちが続く場合は、キュー、権限、コールバックURLを確認します。コールバック用ヘッダーで `POST /internal/jobs/redrive` を呼ぶと、未登録のジョブをまとめて再送できます。
 - Cloud Tasks、Firestore、イメージ保存、ビルド、外向き通信には個別の料金条件があります。イメージの自動クリーンアップや予算通知は環境に合わせて設定してください。
 

@@ -20,6 +20,7 @@ def create_app(solver: Solver | None = None) -> FastAPI:
                              Path(os.environ.get("DEMO_DATA_PATH", DEFAULT_DEMO)))
     app = FastAPI(title="Shift Creator Optimizer", version="1.0")
 
+    @app.get("/health")
     @app.get("/healthz")
     def health() -> dict[str, str]:
         return {"status": "ok"}

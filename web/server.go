@@ -49,9 +49,11 @@ type Proposal struct {
 
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	health := func(w http.ResponseWriter, _ *http.Request) {
 		jsonResponse(w, 200, map[string]string{"status": "ok"})
-	})
+	}
+	mux.HandleFunc("GET /health", health)
+	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("POST /internal/jobs/run", s.task(s.runTask))
 	mux.HandleFunc("POST /internal/jobs/redrive", s.task(s.redrive))
 	mux.HandleFunc("GET /api/plan", s.admin(s.getPlan))

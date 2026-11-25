@@ -97,7 +97,7 @@ def check_break_scenarios(original, revision):
 
 for _ in range(80):
     try:
-        call("/healthz")
+        assert call("/health") == {"status": "ok"}
         break
     except URLError:
         time.sleep(0.2)
