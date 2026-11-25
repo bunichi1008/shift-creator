@@ -5,9 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"strings"
 )
 
-var jobIDPattern = regexp.MustCompile("^[0-9a-f]{32}$")
+var jobIDPattern = regexp.MustCompile("^(?:[0-9a-f]{32}-)?[0-9a-f]{32}$")
 
 func (s *server) listJobs(w http.ResponseWriter, r *http.Request) {
 	jobs, err := s.jobs.list(r.Context())
@@ -39,6 +40,13 @@ func (s *server) submitJob(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) lookupJob(ctx context.Context, id string) (Job, error) {
 	if !jobIDPattern.MatchString(id) {
+		return Job{}, errNotFound
+	}
+	workspace, _, scoped := strings.Cut(id, "-")
+	if !scoped {
+		workspace = ""
+	}
+	if workspace != demoWorkspace(ctx) {
 		return Job{}, errNotFound
 	}
 	job, _, err := s.jobs.get(ctx, id)
@@ -91,7 +99,7 @@ func (s *server) runTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) redrive(w http.ResponseWriter, r *http.Request) {
-	items, err := s.jobs.list(r.Context())
+	items, err := s.jobs.allJobs(r.Context())
 	if err != nil {
 		respondError(w, err)
 		return

@@ -201,9 +201,12 @@ func (s firestoreStore) write(ctx context.Context, collection, id, expected stri
 	return err
 }
 
-func (s firestoreStore) listIDs(ctx context.Context, collection string) ([]string, error) {
+func (s firestoreStore) listIDs(ctx context.Context, collection, prefix string) ([]string, error) {
 	if !recordName.MatchString(collection) {
 		return nil, errNotFound
+	}
+	if prefix != "" {
+		return s.listPrefixedIDs(ctx, collection, prefix)
 	}
 	query := url.Values{"pageSize": {"100"}, "mask.fieldPaths": {"marker"}}
 	var ids []string
@@ -229,6 +232,37 @@ func (s firestoreStore) listIDs(ctx context.Context, collection string) ([]strin
 		}
 		query.Set("pageToken", result.NextToken)
 	}
+}
+
+func (s firestoreStore) listPrefixedIDs(ctx context.Context, collection, prefix string) ([]string, error) {
+	root := s.documentsPrefix() + collection + "/"
+	cursor := func(id string) map[string]any {
+		return map[string]any{
+			"values": []map[string]string{{"referenceValue": root + id}},
+			"before": true,
+		}
+	}
+	// Job IDs end in hex, so the tilde puts the exclusive end after every ID in this workspace.
+	query := map[string]any{
+		"from":    []map[string]string{{"collectionId": collection}},
+		"select":  map[string]any{"fields": []map[string]string{{"fieldPath": "marker"}}},
+		"orderBy": []map[string]any{{"field": map[string]string{"fieldPath": "__name__"}, "direction": "ASCENDING"}},
+		"startAt": cursor(prefix),
+		"endAt":   cursor(prefix + "~"),
+	}
+	var result []struct {
+		Document firestoreRecord `json:"document"`
+	}
+	if err := s.api.call(ctx, http.MethodPost, s.base+":runQuery", map[string]any{"structuredQuery": query}, &result); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, item := range result {
+		if id, ok := strings.CutPrefix(item.Document.Name, root+prefix); ok && recordName.MatchString(prefix+id) {
+			ids = append(ids, prefix+id)
+		}
+	}
+	return ids, nil
 }
 
 func (s firestoreStore) documentsPrefix() string {
@@ -269,7 +303,7 @@ func (q cloudTasksQueue) enqueue(ctx context.Context, id string) error {
 	return err
 }
 
-func cloudBackends(project, optimizerURL, adminToken string, httpClient *http.Client) (store, jobQueue, tokenSource, string, error) {
+func cloudBackends(project, optimizerURL, adminToken string, publicDemo bool, httpClient *http.Client) (store, jobQueue, tokenSource, string, error) {
 	location, queue := os.Getenv("GCP_TASKS_LOCATION"), os.Getenv("GCP_TASKS_QUEUE")
 	database := env("FIRESTORE_DATABASE", "(default)")
 	publicURL := strings.TrimRight(os.Getenv("PUBLIC_URL"), "/")
@@ -283,8 +317,11 @@ func cloudBackends(project, optimizerURL, adminToken string, httpClient *http.Cl
 		(database != "(default)" && !recordName.MatchString(database)) {
 		return nil, nil, nil, "", errors.New("configure GCP_PROJECT, GCP_TASKS_LOCATION, GCP_TASKS_QUEUE and FIRESTORE_DATABASE")
 	}
-	if !validOrigin(publicURL) || !validOrigin(optimizerURL) || len(adminToken) < 16 || len(taskToken) < 16 || taskToken == adminToken {
-		return nil, nil, nil, "", errors.New("Cloud Run requires HTTPS origins and distinct administrator and callback tokens (16+ characters)")
+	if !validOrigin(publicURL) || !validOrigin(optimizerURL) || len(taskToken) < 16 || taskToken == adminToken {
+		return nil, nil, nil, "", errors.New("Cloud Run requires HTTPS origins and a distinct callback token (16+ characters)")
+	}
+	if !publicDemo && len(adminToken) < 16 {
+		return nil, nil, nil, "", errors.New("Cloud Run requires an administrator token (16+ characters) outside public demo mode")
 	}
 	metadata := &metadataTokens{http: httpClient}
 	client := googleClient{http: httpClient, token: metadata.access}

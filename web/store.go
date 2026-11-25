@@ -24,7 +24,7 @@ type store interface {
 	// An empty expected version means create-only.
 	read(context.Context, string, string, any) (string, error)
 	write(context.Context, string, string, string, any) error
-	listIDs(context.Context, string) ([]string, error)
+	listIDs(context.Context, string, string) ([]string, error)
 }
 
 type fileStore struct {
@@ -86,7 +86,7 @@ func (s *fileStore) write(ctx context.Context, collection, id, expected string, 
 	return os.Rename(temp.Name(), path)
 }
 
-func (s *fileStore) listIDs(_ context.Context, collection string) ([]string, error) {
+func (s *fileStore) listIDs(_ context.Context, collection, prefix string) ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(s.dir, collection))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -97,7 +97,7 @@ func (s *fileStore) listIDs(_ context.Context, collection string) ([]string, err
 	var ids []string
 	for _, entry := range entries {
 		name := entry.Name()
-		if id, ok := strings.CutSuffix(name, ".json"); !entry.IsDir() && ok && recordName.MatchString(id) {
+		if id, ok := strings.CutSuffix(name, ".json"); !entry.IsDir() && ok && recordName.MatchString(id) && strings.HasPrefix(id, prefix) {
 			ids = append(ids, id)
 		}
 	}

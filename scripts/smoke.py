@@ -5,11 +5,13 @@ import json
 import os
 import time
 from copy import deepcopy
+from http.cookiejar import CookieJar
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPCookieProcessor, Request, build_opener
 from uuid import uuid4
 
 ORIGIN = os.environ.get("SMOKE_WEB_URL", "http://127.0.0.1:18080")
+browser = build_opener(HTTPCookieProcessor(CookieJar()))
 
 
 SOLVER = os.environ.get("SMOKE_SOLVER", "demo")
@@ -21,7 +23,7 @@ def call(path, method="GET", body=None, status=200, raw=False):
     headers = {"Content-Type": "application/json"} if data else {}
     request = Request(ORIGIN + path, data, headers, method=method)
     try:
-        response = urlopen(request, timeout=8)
+        response = browser.open(request, timeout=8)
     except HTTPError as error:
         response = error
     with response:

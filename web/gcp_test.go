@@ -75,7 +75,7 @@ func TestFirestoreVersionPreconditionsAndListing(t *testing.T) {
 	if err := persistence.write(ctx, plans, currentPlanID, version, "changed"); !errors.Is(err, errConflict) {
 		t.Fatalf("expected stale write conflict, got %v", err)
 	}
-	ids, err := persistence.listIDs(ctx, jobs)
+	ids, err := persistence.listIDs(ctx, jobs, "")
 	if err != nil || strings.Join(ids, ",") != "first,second" {
 		t.Fatalf("incorrect pagination: %v, %v", ids, err)
 	}
@@ -117,6 +117,51 @@ func TestCloudTasksUsesStableNameAndAuthenticatedCallback(t *testing.T) {
 	}
 	if err := queue.enqueue(context.Background(), "task-id"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFirestoreListsJobsForOneDemoWorkspace(t *testing.T) {
+	const root = "projects/test-project/databases/(default)/documents/"
+	const prefix = "0123456789abcdef0123456789abcdef-"
+	const id = prefix + "00000000000000000000000000000000"
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		w := httptest.NewRecorder()
+		var request struct {
+			Query struct {
+				From           []struct{ CollectionID string }
+				StartAt, EndAt struct {
+					Values []struct{ ReferenceValue string }
+					Before bool
+				}
+			} `json:"structuredQuery"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		query := request.Query
+		collectionRoot := root + demoJobs + "/"
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/"+strings.TrimSuffix(root, "/")+":runQuery" ||
+			len(query.From) != 1 || query.From[0].CollectionID != demoJobs ||
+			len(query.StartAt.Values) != 1 || query.StartAt.Values[0].ReferenceValue != collectionRoot+prefix ||
+			len(query.EndAt.Values) != 1 || query.EndAt.Values[0].ReferenceValue != collectionRoot+prefix+"~" ||
+			!query.StartAt.Before || !query.EndAt.Before {
+			t.Fatalf("incorrect Firestore workspace query: %+v", query)
+		}
+		jsonResponse(w, 200, []map[string]firestoreRecord{
+			{"document": {Name: collectionRoot + id}},
+			{"document": {Name: collectionRoot + "other-job"}},
+		})
+		return w.Result(), nil
+	})
+	persistence := firestoreStore{
+		api: googleClient{http: &http.Client{Transport: transport}, token: func(context.Context) (string, error) {
+			return "google-access", nil
+		}},
+		base: "https://firestore.test/v1/" + strings.TrimSuffix(root, "/"),
+	}
+	ids, err := persistence.listIDs(context.Background(), demoJobs, prefix)
+	if err != nil || len(ids) != 1 || ids[0] != id {
+		t.Fatalf("incorrect scoped list: %v, %v", ids, err)
 	}
 }
 

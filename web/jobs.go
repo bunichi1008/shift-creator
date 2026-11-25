@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	plans = "shift-plans"
-	jobs  = "shift-jobs"
+	plans     = "shift-plans"
+	jobs      = "shift-jobs"
+	demoPlans = "shift-demo-plans"
+	demoJobs  = "shift-demo-jobs"
 
 	currentPlanID = "current"
 	maxAttempts   = 3
@@ -39,8 +41,19 @@ type jobService struct {
 
 func (s jobService) get(ctx context.Context, id string) (Job, string, error) {
 	var job Job
-	version, err := s.store.read(ctx, jobs, id, &job)
+	version, err := s.store.read(ctx, jobCollection(id), id, &job)
 	return job, version, err
+}
+
+func jobCollection(id string) string {
+	if strings.Contains(id, "-") {
+		return demoJobs
+	}
+	return jobs
+}
+
+func (s jobService) save(ctx context.Context, job Job, version string) error {
+	return s.store.write(ctx, jobCollection(job.ID), job.ID, version, job)
 }
 
 func (s jobService) submit(ctx context.Context, revision int, key string) (Job, error) {
@@ -49,6 +62,9 @@ func (s jobService) submit(ctx context.Context, revision int, key string) (Job, 
 	}
 	hash := sha256.Sum256([]byte(key))
 	id := fmt.Sprintf("%x", hash[:16])
+	if workspace := demoWorkspace(ctx); workspace != "" {
+		id = workspace + "-" + id
+	}
 	job, _, err := s.get(ctx, id)
 	if err == nil {
 		if job.PlanRevision != revision {
@@ -73,7 +89,7 @@ func (s jobService) submit(ctx context.Context, revision int, key string) (Job, 
 		ID: id, PlanRevision: revision, State: "queued",
 		CreatedAt: now, UpdatedAt: now, Snapshot: plan.Problem,
 	}
-	if err := s.store.write(ctx, jobs, id, "", job); err != nil {
+	if err := s.save(ctx, job, ""); err != nil {
 		if !errors.Is(err, errConflict) {
 			return Job{}, err
 		}
@@ -102,7 +118,7 @@ func (s jobService) tryDispatch(ctx context.Context, job Job) {
 	current, version, err := s.get(dispatchCtx, job.ID)
 	if err == nil && current.State == "queued" && !current.Dispatched {
 		current.Dispatched = true
-		err = s.store.write(dispatchCtx, jobs, job.ID, version, current)
+		err = s.save(dispatchCtx, current, version)
 	}
 	if err != nil && !errors.Is(err, errConflict) {
 		slog.Warn("could not mark queued job as dispatched", "job", job.ID, "error", err)
@@ -123,11 +139,11 @@ func (s jobService) process(ctx context.Context, id string) error {
 	}
 	if job.Attempt >= maxAttempts {
 		job.State, job.Error, job.UpdatedAt = "failed", "実行を再試行できませんでした", now
-		return s.store.write(ctx, jobs, id, version, job)
+		return s.save(ctx, job, version)
 	}
 	job.State, job.UpdatedAt, job.LeaseUntil = "running", now, now.Add(leaseDuration)
 	job.Attempt++
-	if err := s.store.write(ctx, jobs, id, version, job); err != nil {
+	if err := s.save(ctx, job, version); err != nil {
 		return err
 	}
 
@@ -164,7 +180,7 @@ func (s jobService) process(ctx context.Context, id string) error {
 			current.State, current.RetryAfter = "queued", current.UpdatedAt.Add(2*time.Second)
 		}
 	}
-	if err := s.store.write(saveCtx, jobs, id, version, current); err != nil {
+	if err := s.save(saveCtx, current, version); err != nil {
 		return err
 	}
 	if current.State == "queued" {
@@ -174,7 +190,14 @@ func (s jobService) process(ctx context.Context, id string) error {
 }
 
 func (s jobService) list(ctx context.Context) ([]Job, error) {
-	ids, err := s.store.listIDs(ctx, jobs)
+	if workspace := demoWorkspace(ctx); workspace != "" {
+		return s.listJobs(ctx, demoJobs, workspace+"-")
+	}
+	return s.listJobs(ctx, jobs, "")
+}
+
+func (s jobService) listJobs(ctx context.Context, collection, prefix string) ([]Job, error) {
+	ids, err := s.store.listIDs(ctx, collection, prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -193,6 +216,20 @@ func (s jobService) list(ctx context.Context) ([]Job, error) {
 	return result, nil
 }
 
+func (s jobService) allJobs(ctx context.Context) ([]Job, error) {
+	shared, err := s.listJobs(ctx, jobs, "")
+	if err != nil {
+		return nil, err
+	}
+	personal, err := s.listJobs(ctx, demoJobs, "")
+	if err != nil {
+		return nil, err
+	}
+	result := append(shared, personal...)
+	slices.SortFunc(result, func(a, b Job) int { return b.CreatedAt.Compare(a.CreatedAt) })
+	return result, nil
+}
+
 func (s jobService) runLocal(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -201,7 +238,7 @@ func (s jobService) runLocal(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			result, err := s.list(ctx)
+			result, err := s.allJobs(ctx)
 			if err != nil {
 				slog.Error("list local jobs", "error", err)
 				continue

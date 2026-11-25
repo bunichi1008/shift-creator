@@ -25,14 +25,17 @@ import (
 var assets embed.FS
 
 type server struct {
-	store      store
-	jobs       jobService
-	opt        optimizer
-	demo       Problem
-	now        func() time.Time
-	adminToken string
-	taskToken  string
-	proposer   ruleProposer
+	store         store
+	jobs          jobService
+	opt           optimizer
+	demo          Problem
+	now           func() time.Time
+	adminToken    string
+	taskToken     string
+	proposer      ruleProposer
+	publicDemo    bool
+	secureSession bool
+	publicOrigins []string
 }
 
 type ruleProposer interface {
@@ -56,26 +59,26 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("POST /internal/jobs/run", s.task(s.runTask))
 	mux.HandleFunc("POST /internal/jobs/redrive", s.task(s.redrive))
-	mux.HandleFunc("GET /api/plan", s.admin(s.getPlan))
-	mux.HandleFunc("PUT /api/plan", s.admin(s.replacePlan))
-	mux.HandleFunc("POST /api/plan/import", s.admin(s.importPlan))
-	mux.HandleFunc("POST /api/plan/reset", s.admin(s.resetPlan))
-	mux.HandleFunc("PATCH /api/plan/cell", s.admin(s.editCell))
-	mux.HandleFunc("POST /api/plan/rules", s.admin(s.addRule))
-	mux.HandleFunc("PUT /api/plan/rules/{id}", s.admin(s.editRule))
-	mux.HandleFunc("DELETE /api/plan/rules/{id}", s.admin(s.deleteRule))
-	mux.HandleFunc("GET /api/plan.csv", s.admin(s.exportPlan))
-	mux.HandleFunc("POST /api/plan/proposals", s.admin(s.proposeRule))
-	mux.HandleFunc("GET /api/validation", s.admin(s.validatePlan))
-	mux.HandleFunc("GET /api/jobs", s.admin(s.listJobs))
-	mux.HandleFunc("POST /api/jobs", s.admin(s.submitJob))
-	mux.HandleFunc("GET /api/jobs/{id}", s.admin(s.getJob))
-	mux.HandleFunc("POST /api/jobs/{id}/adopt", s.admin(s.adoptJob))
+	mux.HandleFunc("GET /api/plan", s.browserAccess(s.getPlan))
+	mux.HandleFunc("PUT /api/plan", s.browserAccess(s.replacePlan))
+	mux.HandleFunc("POST /api/plan/import", s.browserAccess(s.importPlan))
+	mux.HandleFunc("POST /api/plan/reset", s.browserAccess(s.resetPlan))
+	mux.HandleFunc("PATCH /api/plan/cell", s.browserAccess(s.editCell))
+	mux.HandleFunc("POST /api/plan/rules", s.browserAccess(s.addRule))
+	mux.HandleFunc("PUT /api/plan/rules/{id}", s.browserAccess(s.editRule))
+	mux.HandleFunc("DELETE /api/plan/rules/{id}", s.browserAccess(s.deleteRule))
+	mux.HandleFunc("GET /api/plan.csv", s.browserAccess(s.exportPlan))
+	mux.HandleFunc("POST /api/plan/proposals", s.browserAccess(s.proposeRule))
+	mux.HandleFunc("GET /api/validation", s.browserAccess(s.validatePlan))
+	mux.HandleFunc("GET /api/jobs", s.browserAccess(s.listJobs))
+	mux.HandleFunc("POST /api/jobs", s.browserAccess(s.submitJob))
+	mux.HandleFunc("GET /api/jobs/{id}", s.browserAccess(s.getJob))
+	mux.HandleFunc("POST /api/jobs/{id}/adopt", s.browserAccess(s.adoptJob))
 	static, err := fs.Sub(assets, "static")
 	if err != nil {
 		panic(err)
 	}
-	mux.HandleFunc("GET /", s.admin(http.FileServer(http.FS(static)).ServeHTTP))
+	mux.HandleFunc("GET /", s.browserAccess(http.FileServer(http.FS(static)).ServeHTTP))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
@@ -87,9 +90,9 @@ func (s *server) handler() http.Handler {
 	})
 }
 
-func (s *server) admin(next http.HandlerFunc) http.HandlerFunc {
+func (s *server) browserAccess(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.adminToken != "" {
+		if !s.publicDemo && s.adminToken != "" {
 			user, password, ok := r.BasicAuth()
 			if !ok || user != "admin" || subtle.ConstantTimeCompare([]byte(password), []byte(s.adminToken)) != 1 {
 				w.Header().Set("WWW-Authenticate", "Basic realm=\"Shift Creator\", charset=\"UTF-8\"")
@@ -99,11 +102,20 @@ func (s *server) admin(next http.HandlerFunc) http.HandlerFunc {
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			origin := r.Header.Get("Origin")
+			site := r.Header.Get("Sec-Fetch-Site")
 			source, err := url.Parse(origin)
-			if r.Header.Get("Sec-Fetch-Site") == "cross-site" ||
-				(origin != "" && (err != nil || source.Host != r.Host ||
+			proxiedSameOrigin := s.publicDemo && (site == "same-origin" || slices.Contains(s.publicOrigins, origin))
+			if site == "cross-site" ||
+				(origin != "" && (err != nil || (!proxiedSameOrigin && source.Host != r.Host) ||
 					(source.Scheme != "http" && source.Scheme != "https"))) {
 				jsonResponse(w, 403, map[string]string{"error": "別のサイトから更新できません"})
+				return
+			}
+		}
+		if s.publicDemo && strings.HasPrefix(r.URL.Path, "/api/") {
+			var ok bool
+			r, ok = s.demoRequest(w, r)
+			if !ok {
 				return
 			}
 		}
@@ -187,7 +199,13 @@ func respond[T any](w http.ResponseWriter, status int, handle func(T) (any, erro
 }
 
 func (s *server) getPlan(w http.ResponseWriter, r *http.Request) {
-	plan, _, err := readPlan(r.Context(), s.store)
+	ctx := r.Context()
+	plan, _, err := readPlan(ctx, s.store)
+	if s.publicDemo && errors.Is(err, errNotFound) {
+		if err = s.ensurePlan(ctx); err == nil {
+			plan, _, err = readPlan(ctx, s.store)
+		}
+	}
 	if err != nil {
 		respondError(w, err)
 		return

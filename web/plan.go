@@ -8,9 +8,17 @@ import (
 	"time"
 )
 
+func planDocument(ctx context.Context) (collection, id string) {
+	if workspace := demoWorkspace(ctx); workspace != "" {
+		return demoPlans, workspace
+	}
+	return plans, currentPlanID
+}
+
 func readPlan(ctx context.Context, store store) (Plan, string, error) {
 	var plan Plan
-	version, err := store.read(ctx, plans, currentPlanID, &plan)
+	collection, id := planDocument(ctx)
+	version, err := store.read(ctx, collection, id, &plan)
 	return plan, version, err
 }
 
@@ -20,7 +28,8 @@ func (s *server) ensurePlan(ctx context.Context) error {
 		return err
 	}
 	initial := Plan{Revision: 1, UpdatedAt: s.now().UTC(), Problem: s.demo}
-	err = s.store.write(ctx, plans, currentPlanID, "", initial)
+	collection, id := planDocument(ctx)
+	err = s.store.write(ctx, collection, id, "", initial)
 	if errors.Is(err, errConflict) {
 		return nil
 	}
@@ -41,7 +50,8 @@ func (s *server) updatePlan(ctx context.Context, revision int, update func(*Prob
 	plan.Revision++
 	plan.UpdatedAt = s.now().UTC()
 	plan.SampleRoster = s.isSampleRoster(plan.Problem)
-	return plan, s.store.write(ctx, plans, currentPlanID, version, plan)
+	collection, id := planDocument(ctx)
+	return plan, s.store.write(ctx, collection, id, version, plan)
 }
 
 func (s *server) isSampleRoster(p Problem) bool {

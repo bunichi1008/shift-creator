@@ -84,6 +84,14 @@ gcloud run deploy "$WEB" --image "$WEB_IMAGE" \
 
 OpenAI を有効にするには、実行サービスアカウントに `shift-openai-key` へのアクセス権を付与し、Web サービスに `OPENAI_API_KEY=shift-openai-key:latest` を `--update-secrets` で設定します。必要に応じて `--update-env-vars OPENAI_MODEL=モデルID` も指定します。
 
+## ログインなしの公開デモ
+
+Web サービスに `DEMO_PUBLIC=true` を設定すると、ブラウザごとにサンプルの勤務表と実行履歴が作られます。同じブラウザの同じ公開 URL であれば、Cookie が残っている間は続きから試せます。生成した勤務表は画面から出力できます。
+
+Firebase Hosting を使う場合は、ブラウザで公開するオリジンを `DEMO_PUBLIC_ORIGINS` にカンマ区切りで追加します。例は `https://example.web.app,https://shift.example.com` です。既存の Web サービスを更新する場合、`--update-env-vars="^|^DEMO_PUBLIC=true|DEMO_PUBLIC_ORIGINS=https://example.web.app,https://shift.example.com"` を付けます。
+
+公開デモの勤務表と実行履歴は Firestore の `shift-demo-plans` と `shift-demo-jobs` に保存されます。公開デモではフォーム入力とシフト生成を使えます。OpenAI による条件提案は管理者ログインのモードで利用できます。
+
 ## ジョブと費用の確認
 
 - Web と Optimizer のヘルスチェックは `GET /health` です。Optimizer には Cloud Run のサービス認証が必要です。Cloud Run は末尾が `z` の一部のパスを予約しています。履歴画面で生成が完了したことと、結果の採用ができることを確認します。 [Cloud Run の予約パス](https://docs.cloud.google.com/run/docs/known-issues#reserved-url-paths)

@@ -199,3 +199,99 @@ func TestAdminOriginAndTaskAuthentication(t *testing.T) {
 		t.Fatalf("expected cross-origin request to be rejected, got %d", w.Code)
 	}
 }
+
+func TestPublicDemoIsolatesPlansAndJobs(t *testing.T) {
+	s, _ := testServer(t)
+	ctx := context.Background()
+	shared, err := s.jobs.submit(ctx, 1, "same-request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.publicDemo, s.secureSession = true, true
+	s.adminToken, s.taskToken = "admin-test", "callback-test"
+	s.publicOrigins = []string{"https://demo.web.app"}
+	handler := s.handler()
+	call := func(method, path string, cookie *http.Cookie, token string, body any, status int, dst any) *httptest.ResponseRecorder {
+		t.Helper()
+		data, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(method, path, bytes.NewReader(data))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", "https://demo.web.app")
+		if cookie != nil {
+			r.AddCookie(cookie)
+		}
+		if token != "" {
+			r.Header.Set("X-Shift-Task-Token", token)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != status {
+			t.Fatalf("%s %s: got %d, want %d, body %s", method, path, w.Code, status, w.Body)
+		}
+		if dst != nil {
+			if err := json.Unmarshal(w.Body.Bytes(), dst); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return w
+	}
+
+	home := call("GET", "/", nil, "", nil, 200, nil)
+	if home.Header().Get("WWW-Authenticate") != "" {
+		t.Fatal("the public homepage requested credentials")
+	}
+	first := call("GET", "/api/plan", nil, "", nil, 200, nil).Result().Cookies()[0]
+	second := call("GET", "/api/plan", nil, "", nil, 200, nil).Result().Cookies()[0]
+	if first.Value == second.Value || first.Name != "__session" || !first.HttpOnly || !first.Secure {
+		t.Fatal("expected distinct private browser cookies")
+	}
+	crossSite := httptest.NewRequest("POST", "/api/plan/reset", strings.NewReader(`{"revision":1}`))
+	crossSite.Header.Set("Content-Type", "application/json")
+	crossSite.Header.Set("Origin", "https://demo.web.app")
+	crossSite.Header.Set("Sec-Fetch-Site", "cross-site")
+	crossSite.AddCookie(first)
+	blocked := httptest.NewRecorder()
+	handler.ServeHTTP(blocked, crossSite)
+	if blocked.Code != http.StatusForbidden {
+		t.Fatalf("expected cross-site update to be rejected, got %d", blocked.Code)
+	}
+	call("POST", "/api/plan/reset", first, "", revisionRequest{Revision: 1}, 200, nil)
+	var other struct{ Plan Plan }
+	call("GET", "/api/plan", second, "", nil, 200, &other)
+	if other.Plan.Revision != 1 || !other.Plan.SampleRoster {
+		t.Fatalf("second browser did not receive its own sample: revision %d", other.Plan.Revision)
+	}
+	sharedPlan, _, err := readPlan(ctx, s.store)
+	if err != nil || sharedPlan.Revision != 1 {
+		t.Fatalf("public reset changed the shared plan: %v", err)
+	}
+
+	payload := map[string]any{"revision": 2, "idempotency_key": "same-request"}
+	var job JobView
+	call("POST", "/api/jobs", first, "", payload, 202, &job)
+	var retry JobView
+	call("POST", "/api/jobs", first, "", payload, 202, &retry)
+	if job.ID == shared.ID || job.ID != retry.ID || strings.Contains(job.ID, first.Value) {
+		t.Fatal("public jobs must be scoped, idempotent, and hide the cookie")
+	}
+	var privateHistory []JobView
+	call("GET", "/api/jobs", second, "", nil, 200, &privateHistory)
+	if len(privateHistory) != 0 {
+		t.Fatal("second browser can see another browser's history")
+	}
+	call("GET", "/api/jobs/"+job.ID, second, "", nil, 404, nil)
+	call("GET", "/api/jobs/"+shared.ID, first, "", nil, 404, nil)
+	call("POST", "/api/jobs/"+job.ID+"/adopt", second, "", revisionRequest{Revision: 1}, 404, nil)
+
+	task := map[string]string{"job_id": job.ID}
+	call("POST", "/internal/jobs/run", nil, "", task, 401, nil)
+	call("POST", "/internal/jobs/run", nil, s.taskToken, task, 200, nil)
+	call("GET", "/api/jobs/"+job.ID, first, "", nil, 200, &job)
+	if job.State != "completed" {
+		t.Fatalf("expected public generation to complete, got %s", job.State)
+	}
+	call("POST", "/api/jobs/"+job.ID+"/adopt", first, "", revisionRequest{Revision: 2}, 200, nil)
+}
