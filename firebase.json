@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "shift-creator-515808-app",
     "public": "hosting-public",
     "ignore": ["**/.*"],
     "rewrites": [
