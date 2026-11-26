@@ -74,15 +74,15 @@ function dialogError(form, message) {
   node.hidden = !message;
 }
 
-async function runAction(button, operation, form) {
+async function runAction(button, operation, form, notice = "message") {
   if (button) button.disabled = true;
   if (form) dialogError(form, "");
-  else showNotice("message", "");
+  else showNotice(notice, "");
   try {
     await operation();
   } catch (error) {
     if (form) dialogError(form, error.message);
-    else showNotice("message", error.message, true);
+    else showNotice(notice, error.message, true);
     if (error.status === 409) await refreshPlan().catch(() => {});
   } finally {
     if (button) button.disabled = false;
@@ -135,9 +135,6 @@ async function refreshPlan() {
   const form = $("ai-form");
   $("ai-card").hidden = !data.has_llm;
   form.querySelectorAll("textarea, button").forEach((input) => { input.disabled = !data.has_llm; });
-  $("ai-help").textContent = data.has_llm
-    ? "時間帯や複数の条件をまとめて入力できます。"
-    : "OpenAI API を設定すると利用できます。勤務条件はフォームから追加できます。";
   setPlan(data.plan);
 }
 
@@ -752,7 +749,6 @@ $("proposal-form").addEventListener("submit", (event) => {
 $("ai-form").addEventListener("submit", (event) => {
   event.preventDefault();
   runAction(event.submitter, async () => {
-    showNotice("ai-feedback", "");
     const revision = state.plan.revision;
     const text = $("ai-input").value;
     const proposal = await api("/api/plan/proposals", { method: "POST", body: { revision, text } });
@@ -765,7 +761,7 @@ $("ai-form").addEventListener("submit", (event) => {
     if (rules.length === 1) openRule(rules[0], proposal.source || text);
     else if (rules.length > 1) openRuleBatch(rules, proposal.source || text);
     else throw new Error("登録できる条件案を取得できませんでした。");
-  });
+  }, undefined, "ai-feedback");
 });
 
 $("open-import").addEventListener("click", () => {

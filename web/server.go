@@ -25,17 +25,18 @@ import (
 var assets embed.FS
 
 type server struct {
-	store         store
-	jobs          jobService
-	opt           optimizer
-	demo          Problem
-	now           func() time.Time
-	adminToken    string
-	taskToken     string
-	proposer      ruleProposer
-	publicDemo    bool
-	secureSession bool
-	publicOrigins []string
+	store               store
+	jobs                jobService
+	opt                 optimizer
+	demo                Problem
+	now                 func() time.Time
+	adminToken          string
+	taskToken           string
+	proposer            ruleProposer
+	publicDemo          bool
+	secureSession       bool
+	publicOrigins       []string
+	publicProposalLimit int
 }
 
 type ruleProposer interface {
@@ -172,6 +173,8 @@ func respondError(w http.ResponseWriter, err error) {
 		status, message = 409, "入力が更新されています。最新版を読み込んでやり直してください"
 	case errors.Is(err, errNotFound):
 		status, message = 404, "対象が見つかりません"
+	case errors.Is(err, errDemoProposalLimit):
+		status, message = 429, "公開デモの条件提案が本日の上限に達しました。「条件を追加」から手入力できます。"
 	case errors.Is(err, errBusy), errors.Is(err, errProcessing), errors.Is(err, context.DeadlineExceeded):
 		status, message = 503, "処理を再試行してください"
 	default:
@@ -370,6 +373,11 @@ func (s *server) proposeRule(w http.ResponseWriter, r *http.Request) {
 		}
 		if plan.Revision != body.Revision {
 			return nil, errConflict
+		}
+		if s.publicDemo {
+			if err := s.reserveDemoProposal(r.Context()); err != nil {
+				return nil, err
+			}
 		}
 		return s.proposer.propose(r.Context(), plan.Problem, body.Text)
 	})

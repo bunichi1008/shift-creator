@@ -70,6 +70,17 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return errors.New("DEMO_PUBLIC must be true or false")
 	}
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	var publicProposalLimit int
+	if publicDemo {
+		publicProposalLimit, err = strconv.Atoi(env("DEMO_PUBLIC_OPENAI_DAILY_LIMIT", "0"))
+		if err != nil || publicProposalLimit < 0 {
+			return errors.New("DEMO_PUBLIC_OPENAI_DAILY_LIMIT must be a non-negative integer")
+		}
+		if publicProposalLimit > 0 && apiKey == "" {
+			return errors.New("OPENAI_API_KEY is required for public OpenAI proposals")
+		}
+	}
 	var queue jobQueue
 	var taskToken string
 	project := os.Getenv("GCP_PROJECT")
@@ -84,10 +95,10 @@ func run(ctx context.Context) error {
 	s := server{
 		store: persistence, demo: demo, now: time.Now, opt: opt, adminToken: adminToken, taskToken: taskToken,
 		publicDemo: publicDemo, secureSession: project != "",
-		publicOrigins: strings.Split(os.Getenv("DEMO_PUBLIC_ORIGINS"), ","),
+		publicOrigins: strings.Split(os.Getenv("DEMO_PUBLIC_ORIGINS"), ","), publicProposalLimit: publicProposalLimit,
 	}
 	s.jobs = jobService{store: persistence, optimizer: opt, queue: queue, timeLimit: timeout, clock: time.Now}
-	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" && !publicDemo {
+	if apiKey != "" && (!publicDemo || publicProposalLimit > 0) {
 		s.proposer = openAIProposer{apiKey: apiKey, model: env("OPENAI_MODEL", "gpt-4o-mini"),
 			endpoint: openAIEndpoint, http: client}
 	}

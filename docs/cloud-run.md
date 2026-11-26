@@ -90,7 +90,9 @@ Web サービスに `DEMO_PUBLIC=true` を設定すると、ブラウザごと�
 
 Firebase Hosting を使う場合は、ブラウザで公開するオリジンを `DEMO_PUBLIC_ORIGINS` にカンマ区切りで追加します。例は `https://example.web.app,https://shift.example.com` です。既存の Web サービスを更新する場合、`--update-env-vars="^|^DEMO_PUBLIC=true|DEMO_PUBLIC_ORIGINS=https://example.web.app,https://shift.example.com"` を付けます。
 
-公開デモの勤務表と実行履歴は Firestore の `shift-demo-plans` と `shift-demo-jobs` に保存されます。公開デモではフォーム入力とシフト生成を使えます。OpenAI による条件提案は管理者ログインのモードで利用できます。
+公開デモの勤務表と実行履歴は Firestore の `shift-demo-plans` と `shift-demo-jobs` に保存されます。公開デモではフォーム入力とシフト生成を使えます。
+
+公開デモに「日本語から条件を提案」を表示するには、上記の `OPENAI_API_KEY` のシークレット設定に加え、`--update-env-vars DEMO_PUBLIC_OPENAI_DAILY_LIMIT=30` のようにデモ全体の1日あたりの呼び出し上限を指定します。上限の既定値は `0`（公開デモでは無効）です。呼び出し前に Firestore の `shift-demo-proposal-usage` で回数を確保するため、ブラウザや Cloud Run インスタンスが変わっても同じ上限が適用されます。回数は UTC の日付が変わるとリセットされます。上限に達しても「条件を追加」から手入力できます。
 
 ## ジョブと費用の確認
 

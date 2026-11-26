@@ -8,12 +8,24 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 type testOptimizer struct {
 	calls int
+}
+
+type testProposer struct{ calls atomic.Int32 }
+
+func (p *testProposer) propose(context.Context, Problem, string) (Proposal, error) {
+	p.calls.Add(1)
+	minimum := 6
+	return Proposal{Status: "proposal", Rules: []Rule{{
+		Type: "min_time_coverage", AllDates: true, StartTime: "14:00", EndTime: "17:00", Value: &minimum,
+	}}}, nil
 }
 
 func (s *testOptimizer) solve(_ context.Context, req SolveRequest) (SolveResult, error) {
@@ -197,6 +209,71 @@ func TestAdminOriginAndTaskAuthentication(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code != 403 {
 		t.Fatalf("expected cross-origin request to be rejected, got %d", w.Code)
+	}
+}
+
+func TestPublicDemoProposalLimit(t *testing.T) {
+	s, _ := testServer(t)
+	today := time.Date(2026, 11, 26, 15, 0, 0, 0, time.UTC)
+	s.publicDemo = true
+	s.publicProposalLimit = 1
+	s.now = func() time.Time { return today }
+	h := s.handler()
+	openDemo := func(wantLLM bool) *http.Cookie {
+		t.Helper()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", "/api/plan", nil))
+		var data struct {
+			HasLLM bool `json:"has_llm"`
+		}
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &data) != nil || data.HasLLM != wantLLM {
+			t.Fatalf("GET /api/plan: status %d, has_llm=%t, want %t", w.Code, data.HasLLM, wantLLM)
+		}
+		return w.Result().Cookies()[0]
+	}
+	openDemo(false)
+	proposer := &testProposer{}
+	s.proposer = proposer
+	first, second := openDemo(true), openDemo(true)
+	submit := func(cookie *http.Cookie, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/plan/proposals", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := submit(first, `{"revision":2,"text":"毎日14時から17時まで、最低6人"}`); w.Code != 409 {
+		t.Fatalf("stale proposal: got %d, want 409", w.Code)
+	}
+	const input = `{"revision":1,"text":"毎日14時から17時まで、最低6人"}`
+	var wg sync.WaitGroup
+	responses := make(chan *httptest.ResponseRecorder, 2)
+	for _, cookie := range []*http.Cookie{first, second} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			responses <- submit(cookie, input)
+		}()
+	}
+	wg.Wait()
+	close(responses)
+	statuses := map[int]int{}
+	for w := range responses {
+		statuses[w.Code]++
+		if w.Code == 200 {
+			var proposal Proposal
+			if err := json.Unmarshal(w.Body.Bytes(), &proposal); err != nil || proposal.Status != "proposal" || len(proposal.Rules) != 1 {
+				t.Fatalf("expected a condition proposal, got %s", w.Body)
+			}
+		}
+	}
+	if statuses[200] != 1 || statuses[429] != 1 || proposer.calls.Load() != 1 {
+		t.Fatalf("public proposals exceeded the shared allowance: statuses %v, calls %d", statuses, proposer.calls.Load())
+	}
+	today = today.AddDate(0, 0, 1)
+	if w := submit(second, input); w.Code != 200 || proposer.calls.Load() != 2 {
+		t.Fatalf("next day's allowance: status %d, calls %d", w.Code, proposer.calls.Load())
 	}
 }
 
