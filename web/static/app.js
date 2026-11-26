@@ -746,13 +746,6 @@ $("proposal-form").addEventListener("submit", (event) => {
   }, form);
 });
 
-$("ai-example").addEventListener("click", (event) => {
-  const input = $("ai-input");
-  input.value = event.currentTarget.dataset.example;
-  showNotice("ai-feedback", "");
-  input.focus();
-});
-
 $("ai-form").addEventListener("submit", (event) => {
   event.preventDefault();
   runAction(event.submitter, async () => {

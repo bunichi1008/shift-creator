@@ -93,8 +93,7 @@
         <p class="meta">条件案を作ると、入力文と対象期間、職員・勤務・資格の情報はサーバー経由で OpenAI に送信されます。</p>
         <form id="ai-form">
           <label class="sr-only" for="ai-input">日本語の勤務条件</label>
-          <textarea id="ai-input" rows="3" maxlength="500" required></textarea>
-          <button type="button" class="quiet" id="ai-example" data-example="全員の連勤は4日まで">例「全員の連勤は4日まで」</button>
+          <textarea id="ai-input" rows="3" maxlength="500" placeholder="全員の連勤は4日まで" required></textarea>
           <button type="submit">条件案を作る</button>
         </form>
         <p class="notice subtle" id="ai-feedback" role="status" hidden></p>
