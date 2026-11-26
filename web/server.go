@@ -203,10 +203,10 @@ func respond[T any](w http.ResponseWriter, status int, handle func(T) (any, erro
 
 func (s *server) getPlan(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	plan, _, err := readPlan(ctx, s.store)
+	plan, _, err := s.loadPlan(ctx)
 	if s.publicDemo && errors.Is(err, errNotFound) {
 		if err = s.ensurePlan(ctx); err == nil {
-			plan, _, err = readPlan(ctx, s.store)
+			plan, _, err = s.loadPlan(ctx)
 		}
 	}
 	if err != nil {
@@ -367,7 +367,7 @@ func (s *server) proposeRule(w http.ResponseWriter, r *http.Request) {
 		if body.Text == "" || len([]rune(body.Text)) > 500 {
 			return nil, inputError("条件は1〜500文字で入力してください")
 		}
-		plan, _, err := readPlan(r.Context(), s.store)
+		plan, _, err := s.loadPlan(r.Context())
 		if err != nil {
 			return nil, err
 		}
@@ -384,7 +384,7 @@ func (s *server) proposeRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) validatePlan(w http.ResponseWriter, r *http.Request) {
-	plan, _, err := readPlan(r.Context(), s.store)
+	plan, _, err := s.loadPlan(r.Context())
 	if err != nil {
 		respondError(w, err)
 		return
@@ -401,7 +401,7 @@ func (s *server) validatePlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) exportPlan(w http.ResponseWriter, r *http.Request) {
-	plan, _, err := readPlan(r.Context(), s.store)
+	plan, _, err := s.loadPlan(r.Context())
 	if err != nil {
 		respondError(w, err)
 		return

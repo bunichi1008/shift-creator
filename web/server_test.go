@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -209,6 +210,64 @@ func TestAdminOriginAndTaskAuthentication(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code != 403 {
 		t.Fatalf("expected cross-origin request to be rejected, got %d", w.Code)
+	}
+}
+
+func TestLegacySampleRosterNames(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		customName string
+		wantNames  []string
+		wantSample bool
+	}{
+		{name: "old sample", wantNames: []string{"Aさん", "Bさん"}, wantSample: true},
+		{name: "edited roster", customName: "担当者1", wantNames: []string{"担当者1", "石井 凛"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, _ := testServer(t)
+			s.publicDemo = true
+			r := httptest.NewRequest("GET", "/api/plan", nil)
+			r.AddCookie(&http.Cookie{Name: demoCookie, Value: strings.Repeat("a", 32)})
+			scoped, ok := s.demoRequest(httptest.NewRecorder(), r)
+			if !ok {
+				t.Fatal("could not open demo workspace")
+			}
+			ctx := scoped.Context()
+			collection, id := planDocument(ctx)
+			problem := s.demo
+			problem.Employees = slices.Clone(problem.Employees)
+			for i := range problem.Employees {
+				problem.Employees[i].Name = legacySampleNames[problem.Employees[i].ID]
+			}
+			if test.customName != "" {
+				problem.Employees[0].Name = test.customName
+			}
+			problem.Locks = []Assignment{{EmployeeID: "e01", Date: "2026-12-03", ShiftID: "off"}}
+			if err := s.store.write(ctx, collection, id, "", Plan{Revision: 3, Problem: problem}); err != nil {
+				t.Fatal(err)
+			}
+			w := httptest.NewRecorder()
+			s.handler().ServeHTTP(w, r)
+			var response struct{ Plan Plan }
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &response) != nil {
+				t.Fatalf("GET /api/plan: status %d", w.Code)
+			}
+			stored, _, err := readPlan(ctx, s.store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, plan := range []Plan{response.Plan, stored} {
+				if plan.Revision != 3 || plan.SampleRoster != test.wantSample || len(plan.Problem.Locks) != 1 ||
+					plan.Problem.Locks[0].EmployeeID != "e01" || plan.Problem.Locks[0].ShiftID != "off" {
+					t.Fatal("the plan revision, sample flag, or manual lock is incorrect")
+				}
+				for i, name := range test.wantNames {
+					if got := plan.Problem.Employees[i].Name; got != name {
+						t.Errorf("employee %d name = %q, want %q", i, got, name)
+					}
+				}
+			}
+		})
 	}
 }
 

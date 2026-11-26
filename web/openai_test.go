@@ -164,9 +164,9 @@ func TestProposalRejectsDatesAndEmployeesTheModelInvented(t *testing.T) {
 	}{
 		{"来月1日の日勤を最低2人にして", Rule{Type: "min_coverage", Date: "2026-12-01", ShiftID: "day", Value: &two}, "clarify"},
 		{"まず夜勤を組んで、日勤は後回し", Rule{Type: "fixed", Date: "2026-12-01", ShiftID: "night", EmployeeID: "e01"}, "clarify"},
-		{"12月17日の石井 凛は休みに固定", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "off", EmployeeID: "e02"}, "proposal"},
-		{"12月17日の石井 凛は休みで固定してください", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "休み", EmployeeID: "e02"}, "proposal"},
-		{"12月17日の石井さんは休みに固定", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "off", EmployeeID: "e02"}, "proposal"},
+		{"12月17日のBさんは休みに固定", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "off", EmployeeID: "e02"}, "proposal"},
+		{"12月17日のBさんは休みで固定してください", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "休み", EmployeeID: "e02"}, "proposal"},
+		{"12月17日のB さんは休みに固定", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "off", EmployeeID: "e02"}, "proposal"},
 		{"12月12日の翌日の日勤を最低2人", Rule{Type: "min_coverage", Date: "2026-12-13", ShiftID: "day", Value: &two}, "proposal"},
 		{"12月12日にリーダーを常に2人", Rule{Type: "min_time_coverage", Date: "2026-12-12", SkillID: "leader", StartTime: "00:00", EndTime: "00:00", AllShifts: true, Value: &two}, "proposal"},
 		{"12月12日の各勤務枠にリーダーを最低2人", Rule{Type: "min_time_coverage", Date: "2026-12-12", SkillID: "leader", StartTime: "00:00", EndTime: "00:00", AllShifts: true, Value: &two}, "clarify"},
@@ -187,23 +187,23 @@ func TestProposalRequiresExplicitAvailabilityScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	rule := Rule{Type: "available_only", EmployeeID: "e02", Dates: []string{"2026-12-07", "2026-12-03"}}
-	explicit := "石井 凛が出勤できるのは12月7日と12月3日だけです"
+	explicit := "Bさんが出勤できるのは12月7日と12月3日だけです"
 	got, err := checkedProposal(p, explicit, Proposal{Status: "proposal", Rule: &rule})
 	if err != nil || got.Rule == nil || !reflect.DeepEqual(got.Rule.Dates, []string{"2026-12-03", "2026-12-07"}) {
 		t.Fatalf("unexpected availability: %+v, %v", got, err)
 	}
-	for _, phrase := range []string{"石井 凛は12月7日に出勤できます", "石井 凛は12月7日だけ出勤できない"} {
+	for _, phrase := range []string{"Bさんは12月7日に出勤できます", "Bさんは12月7日だけ出勤できない"} {
 		got, err := checkedProposal(p, phrase, Proposal{Status: "proposal", Rule: &rule})
 		if err != nil || got.Status != "clarify" {
 			t.Fatalf("inferred restrictions: %+v, %v", got, err)
 		}
 	}
-	got, err = checkedProposal(p, "石井 凛は毎週火曜と12月3日だけ出勤可能です", Proposal{Status: "proposal", Rule: &rule})
+	got, err = checkedProposal(p, "Bさんは毎週火曜と12月3日だけ出勤可能です", Proposal{Status: "proposal", Rule: &rule})
 	if err != nil || got.Status != "clarify" {
 		t.Fatalf("an unmentioned date was accepted: %+v, %v", got, err)
 	}
 	rule.Dates = []string{"2026-12-03", "2026-12-04", "2026-12-05"}
-	got, err = checkedProposal(p, "石井 凛は１２月３日〜５日だけ出勤可能です", Proposal{Status: "proposal", Rule: &rule})
+	got, err = checkedProposal(p, "Bさんは１２月３日〜５日だけ出勤可能です", Proposal{Status: "proposal", Rule: &rule})
 	if err != nil || got.Status != "proposal" {
 		t.Fatalf("an explicit range was rejected: %+v, %v", got, err)
 	}
