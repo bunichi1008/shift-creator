@@ -46,6 +46,7 @@ type ruleProposer interface {
 type Proposal struct {
 	Status   string `json:"status"`
 	Question string `json:"question,omitempty"`
+	Message  string `json:"message,omitempty"`
 	Source   string `json:"source,omitempty"`
 	Rule     *Rule  `json:"rule,omitempty"`
 	Rules    []Rule `json:"rules,omitempty"`
@@ -373,6 +374,9 @@ func (s *server) proposeRule(w http.ResponseWriter, r *http.Request) {
 		}
 		if plan.Revision != body.Revision {
 			return nil, errConflict
+		}
+		if qualificationDayOffHeadcount.MatchString(body.Text) {
+			return unsupportedProposal("資格ごとに休む人数を指定する条件には対応していません。「条件を追加」から職員ごとの休みを指定できます。"), nil
 		}
 		if s.publicDemo {
 			if err := s.reserveDemoProposal(r.Context()); err != nil {

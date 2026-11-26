@@ -40,7 +40,8 @@ def main():
     if plan["problem"]["start_date"] != "2026-12-01":
         parser.error("Load the December 2026 demonstration dataset first.")
     cases = json.loads(DATASET.read_text(encoding="utf-8"))
-    exact = expected_rules = clarified = expected_clarifications = wrong_proposals = 0
+    exact = expected_rules = clarified = expected_clarifications = 0
+    unsupported = expected_unsupported = wrong_proposals = 0
     latencies = []
     for index, case in enumerate(cases, 1):
         started = time.perf_counter()
@@ -53,6 +54,11 @@ def main():
             correct = response["status"] == "proposal" and rule_counts(actual) == rule_counts(expected)
             exact += correct
             wrong_proposals += response["status"] == "proposal" and not correct
+        elif case.get("status") == "unsupported":
+            expected_unsupported += 1
+            correct = response["status"] == "unsupported"
+            unsupported += correct
+            wrong_proposals += response["status"] == "proposal"
         else:
             expected_clarifications += 1
             correct = response["status"] == "clarify"
@@ -60,10 +66,12 @@ def main():
             wrong_proposals += response["status"] == "proposal"
         if not correct:
             print(json.dumps({"case": index, "expected": expected, "actual": actual,
-                              "status": response["status"], "question": response.get("question")}, ensure_ascii=False))
+                              "status": response["status"], "question": response.get("question"),
+                              "message": response.get("message")}, ensure_ascii=False))
     print(json.dumps({
         "exact_rule_matches": f"{exact}/{expected_rules}",
         "correct_clarifications": f"{clarified}/{expected_clarifications}",
+        "correct_unsupported": f"{unsupported}/{expected_unsupported}",
         "wrong_proposals": f"{wrong_proposals}/{len(cases)}",
         "median_ms": statistics.median(latencies),
     }, ensure_ascii=False))

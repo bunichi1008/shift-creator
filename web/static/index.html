@@ -90,10 +90,11 @@
       </section>
       <section class="card padded" id="ai-card" aria-labelledby="ai-title" hidden>
         <h2 id="ai-title">日本語から条件を提案</h2>
-        <p class="meta">条件案を作ると、入力文と対象期間、職員・勤務・資格の情報が OpenAI に送信されます。</p>
+        <p class="meta">条件案を作ると、入力文と対象期間、職員・勤務・資格の情報はサーバー経由で OpenAI に送信されます。</p>
         <form id="ai-form">
           <label class="sr-only" for="ai-input">日本語の勤務条件</label>
-          <textarea id="ai-input" rows="3" maxlength="500" placeholder="毎日14時から17時まで、最低6人" required></textarea>
+          <textarea id="ai-input" rows="3" maxlength="500" required></textarea>
+          <button type="button" class="quiet" id="ai-example" data-example="全員の連勤は4日まで">例「全員の連勤は4日まで」</button>
           <button type="submit">条件案を作る</button>
         </form>
         <p class="notice subtle" id="ai-feedback" role="status" hidden></p>
@@ -248,6 +249,7 @@
       </select>
     </label>
     <p class="meta import-help" id="import-help"></p>
+    <p class="meta">取り込んだデータはサーバーに送信され、勤務表の作成と保存に使われます。</p>
     <label>ファイル<input type="file" name="file" accept=".csv,.json,text/csv,application/json" required></label>
     <div class="dialog-actions">
       <a class="button" href="/api/plan.csv">勤務表 CSV</a>

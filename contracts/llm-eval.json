@@ -24,5 +24,7 @@
   {"text": "Bさんが出勤できるのは12月3日と12月7日だけです", "rule": {"type": "available_only", "dates": ["2026-12-03", "2026-12-07"], "employee_id": "e02"}},
   {"text": "Bさんは毎週火曜と土曜、加えて12月10日だけ出勤可能です", "rule": {"type": "available_only", "dates": ["2026-12-10"], "weekdays": ["tue", "sat"], "employee_id": "e02"}},
   {"text": "Bさんは12月12日に出勤できます"},
-  {"text": "Bさんは12月12日に必ず休みにしてください", "rule": {"type": "unavailable", "date": "2026-12-12", "employee_id": "e02"}}
+  {"text": "Bさんは12月12日に必ず休みにしてください", "rule": {"type": "unavailable", "date": "2026-12-12", "employee_id": "e02"}},
+  {"text": "毎日リーダーが5人以上休み", "status": "unsupported"},
+  {"text": "AさんとBさんは同じ勤務に入れないでください", "status": "unsupported"}
 ]

@@ -305,6 +305,18 @@ func TestPublicDemoProposalLimit(t *testing.T) {
 	if w := submit(first, `{"revision":2,"text":"毎日14時から17時まで、最低6人"}`); w.Code != 409 {
 		t.Fatalf("stale proposal: got %d, want 409", w.Code)
 	}
+	for _, text := range []string{"毎日リーダーが5人以上休み", "12月12日は有資格者のうち５名以上を休みに"} {
+		body, err := json.Marshal(map[string]any{"revision": 1, "text": text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := submit(first, string(body))
+		var proposal Proposal
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &proposal) != nil || proposal.Status != "unsupported" ||
+			!strings.Contains(proposal.Message, "資格ごとに休む人数") || proposal.Question != "" || proposer.calls.Load() != 0 {
+			t.Fatalf("unsupported request was not explained locally: %s", w.Body)
+		}
+	}
 	const input = `{"revision":1,"text":"毎日14時から17時まで、最低6人"}`
 	var wg sync.WaitGroup
 	responses := make(chan *httptest.ResponseRecorder, 2)

@@ -35,7 +35,7 @@ func TestOpenAIProposalUsesStructuredResponseAndValidatesIDs(t *testing.T) {
 			t.Error("unexpected OpenAI request payload")
 		}
 		output, _ := json.Marshal(map[string]any{
-			"status": "proposal", "question": nil, "source": phrase,
+			"status": "proposal", "question": nil, "message": nil, "source": phrase,
 			"rules": []map[string]any{{
 				"type": "min_skill_coverage", "date": "2026-12-12", "shift_id": "night",
 				"skill_id": "leader", "employee_id": nil, "value": 1, "all_dates": false, "all_shifts": false,
@@ -60,6 +60,17 @@ func TestOpenAIProposalUsesStructuredResponseAndValidatesIDs(t *testing.T) {
 	checked, err := checkedProposal(p, phrase, proposal)
 	if err != nil || checked.Status != "clarify" || checked.Rule != nil {
 		t.Fatalf("invalid ID not rejected: %+v, %v", checked, err)
+	}
+}
+
+func TestUnsupportedProposalDoesNotReturnPartialRules(t *testing.T) {
+	result, err := checkedProposal(Problem{}, "AさんとBさんを同じ勤務に入れないで", Proposal{
+		Status: "unsupported", Message: "  同時勤務を禁止する条件には対応していません。  ",
+		Question: "対象日はいつですか？", Rules: []Rule{{Type: "fixed"}},
+	})
+	if err != nil || result.Status != "unsupported" || result.Message != "同時勤務を禁止する条件には対応していません。" ||
+		result.Question != "" || len(result.Rules) != 0 {
+		t.Fatalf("unexpected unsupported result: %+v, %v", result, err)
 	}
 }
 
@@ -156,7 +167,7 @@ func TestProposalRejectsDatesAndEmployeesTheModelInvented(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	two := 2
+	two, four := 2, 4
 	tests := []struct {
 		phrase string
 		rule   Rule
@@ -164,6 +175,7 @@ func TestProposalRejectsDatesAndEmployeesTheModelInvented(t *testing.T) {
 	}{
 		{"来月1日の日勤を最低2人にして", Rule{Type: "min_coverage", Date: "2026-12-01", ShiftID: "day", Value: &two}, "clarify"},
 		{"まず夜勤を組んで、日勤は後回し", Rule{Type: "fixed", Date: "2026-12-01", ShiftID: "night", EmployeeID: "e01"}, "clarify"},
+		{"全員の連勤は4日まで", Rule{Type: "max_consecutive", Value: &four}, "proposal"},
 		{"12月17日のBさんは休みに固定", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "off", EmployeeID: "e02"}, "proposal"},
 		{"12月17日のBさんは休みで固定してください", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "休み", EmployeeID: "e02"}, "proposal"},
 		{"12月17日のB さんは休みに固定", Rule{Type: "fixed", Date: "2026-12-17", ShiftID: "off", EmployeeID: "e02"}, "proposal"},

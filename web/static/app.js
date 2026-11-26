@@ -746,6 +746,13 @@ $("proposal-form").addEventListener("submit", (event) => {
   }, form);
 });
 
+$("ai-example").addEventListener("click", (event) => {
+  const input = $("ai-input");
+  input.value = event.currentTarget.dataset.example;
+  showNotice("ai-feedback", "");
+  input.focus();
+});
+
 $("ai-form").addEventListener("submit", (event) => {
   event.preventDefault();
   runAction(event.submitter, async () => {
@@ -753,6 +760,10 @@ $("ai-form").addEventListener("submit", (event) => {
     const text = $("ai-input").value;
     const proposal = await api("/api/plan/proposals", { method: "POST", body: { revision, text } });
     if (revision !== state.plan.revision) throw new Error("入力版が変わりました。条件を再提案してください。");
+    if (proposal.status === "unsupported") {
+      showNotice("ai-feedback", proposal.message);
+      return;
+    }
     if (proposal.status === "clarify") {
       showNotice("ai-feedback", proposal.question);
       return;
